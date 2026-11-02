@@ -213,6 +213,7 @@ private fun Notice(text: String, color: Color) {
 private fun imuModeLabel(raw: String): String = when (raw) {
     "sensor" -> stringResource(R.string.imu_mode_sensor)
     "host_aligned" -> stringResource(R.string.imu_mode_host_aligned)
+    "auto" -> stringResource(R.string.imu_mode_auto)
     else -> raw
 }
 

@@ -144,13 +144,13 @@ spec (docs/phone-protocol.md on the scanner side), *provisional* ones may still 
 
    **Answer:** The spec says progress comes at most once per second. Whether it continues while finalizing: Not in the spec; still open for the scanner side.
 
-   **Scanner answer (2026-11-02):** Binding: no progress after `finalizing`; the last progress before it has the final counts. `state` events carry state, chunks, points, last_ok, location.
+   **Scanner answer (2026-11-02):** Binding: no progress after `finalizing`; the last progress before it has the final counts. `state` events carry state, chunks, points, last_ok, location. **Refined:** the recording's totals (chunks and points, its last partial chunk included) are in the final `idle` (or `error`) state event; the last progress can be one partial chunk short. Show totals from the final state (the app does: a state event replaces the counts).
 
 19. **`data` missing:** may an event have no `data`? *App:* treats it as empty.
 
    **Answer:** The spec's event format always has `data`. Not in the spec; still open for the scanner side.
 
-   **Scanner answer (2026-11-02):** Binding: `data` is always an object.
+   **Scanner answer (2026-11-02):** Binding: `data` is always an object (except the `result` event, which has none; see question 31).
 
 ## Field meanings
 
@@ -184,7 +184,7 @@ spec (docs/phone-protocol.md on the scanner side), *provisional* ones may still 
 
    **Answer:** The spec says both are strings. Their values: Not in the spec; still open for the scanner side.
 
-   **Scanner answer (2026-11-02):** Binding: `imu_mode` is `"sensor"` (normal) or `"host_aligned"` (fallback); `decision` is readable text, shown as is.
+   **Scanner answer (2026-11-02):** Binding: `imu_mode` is `"sensor"` (normal) or `"host_aligned"` (fallback); `decision` is readable text, shown as is. **Refined:** `imu_mode` can also be `"auto"` (a recording too short to decide).
 
 25. **Integer sizes:** can `points`, `imu_in` and the others go beyond 2^53? *App:* reads 64-bit
     integers.
@@ -238,7 +238,7 @@ spec (docs/phone-protocol.md on the scanner side), *provisional* ones may still 
 
    **Answer:** The spec says the command answers `{"accepted":true}` and a later event carries `"op":<the request id>` with the result (used from phase 4 on). The event name, where `op` sits, and recovery when the event is dropped: Not in the spec; still open for the scanner side.
 
-   **Scanner answer (2026-11-02):** Binding: one event `"result"`, `op` at top level, shaped like a response: `{"event":"result","seq":9,"op":12,"ok":true,"result":{...}}` or `ok:false` plus `error`. Sent only to the asking connection, never left out.
+   **Scanner answer (2026-11-02):** Binding: one event `"result"`, `op` at top level, shaped like a response: `{"event":"result","seq":9,"op":12,"ok":true,"result":{...}}` or `ok:false` plus `error`. Sent only to the asking connection, never left out. **Refined:** the `result` event has no `data` field; op, ok and result/error are at the top level.
 
 32. **`recording.start` and `recording.stop`:** do they answer `{"accepted":false}` or the error
     `busy` when the scanner cannot accept? What is the difference?

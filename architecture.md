@@ -75,7 +75,7 @@ apply `kotlin-android`), Kotlin 2.4, compileSdk 37, minSdk 26, Java 17 bytecode.
 - `Warning`: `id` (assigned by the app), `kind: WarningKind` (known kinds plus `Unknown(raw)`),
   `text` (shown verbatim), `receivedAt`.
 - `RecordingSummary`: `imuMode`, `decision`, `imuIn`, `imuOut`, `lostSamples`, `receivedAt`.
-  `imuMode` ("sensor" or "host_aligned", shown with a readable label) and `decision` (readable
+  `imuMode` ("sensor", "host_aligned" or "auto", shown with a readable label) and `decision` (readable
   text) stay strings.
 - `Compatibility`: `Unknown`, `Compatible`, `NotAnswering` (the link is up but nothing the
   scanner sends is a protocol message, for example its echo test service),

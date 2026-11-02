@@ -78,4 +78,5 @@
     <string name="label_lost_samples">Lost samples</string>
     <string name="imu_mode_sensor">Sensor (normal)</string>
     <string name="imu_mode_host_aligned">Host aligned (fallback)</string>
+    <string name="imu_mode_auto">Auto (recording too short to decide)</string>
 </resources>
