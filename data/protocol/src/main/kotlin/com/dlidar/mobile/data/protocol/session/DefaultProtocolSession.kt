@@ -84,6 +84,8 @@ class DefaultProtocolSession(
 
     override suspend fun <R> call(command: ProtocolCommand<R>, onAnswer: ((R) -> Unit)?): CallResult<R> {
         val call = PendingCall(command, onAnswer)
+        // The timeout covers only the wait for the answer: writing can take longer, for example
+        // while Android pairs on the first write; the transport bounds that.
         try {
             val id = when (val sent = send(call)) {
                 is Sent.Ok -> sent.id
@@ -187,6 +189,9 @@ class DefaultProtocolSession(
      * Spec: too_large, and bad_request for a request whose id could not be read, take that
      * request's place in the response order, so they answer the oldest pending request. Other
      * errors without id (too_many_clients) belong to no request.
+     *
+     * Accepted limit: when the request the error belongs to already timed out, the next one
+     * gets it. The scanner answers in milliseconds and in order (open questions 8 and 9).
      */
     private fun onErrorWithoutId(error: RemoteError) {
         if (error.code == ErrorCode.TooLarge || error.code == ErrorCode.BadRequest) {

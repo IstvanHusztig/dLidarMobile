@@ -30,7 +30,7 @@
     <string name="conn_failed_not_dlidar">This device is not a dLidar scanner.</string>
     <string name="conn_failed_not_paired">This phone is not paired with the scanner. Open the scanner\'s pairing window, then tap Retry and confirm the pairing.</string>
     <string name="conn_failed_other">The connection failed.</string>
-    <string name="update_app">The scanner speaks a newer protocol version than this app. Please update the app.</string>
+    <string name="update_app">The scanner does not speak this app\'s protocol version. Please update the app.</string>
     <string name="update_scanner">The scanner speaks an older protocol version than this app. Please update the scanner.</string>
     <string name="not_answering">The scanner is connected but does not answer. Its test service may be running instead of the dLidar service. The app keeps asking.</string>
     <string name="values_stale">Last known values; not live.</string>

@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
 /**
- * Scans for scanners that advertise the service UUID or the name "dLidar". Each result updates
+ * Scans for scanners that advertise the service UUID (the name is not matched). Each result updates
  * the list, strongest signal first. Android limits apps to about five scan starts per 30 s.
  */
 class BleScannerFinder(context: Context) : ScannerFinder {

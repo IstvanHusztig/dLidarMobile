@@ -65,7 +65,7 @@ class StatusScreenTest {
     @Test
     fun `update the app is shown when the scanner is newer`() {
         compose.setContent { StatusScreen(live.copy(updateAppRequired = true), onAction = {}) }
-        compose.onNodeWithText("The scanner speaks a newer protocol version than this app. Please update the app.").assertExists()
+        compose.onNodeWithText("Please update the app.", substring = true).assertExists()
         compose.onNodeWithText("Refresh").assertDoesNotExist()
     }
 

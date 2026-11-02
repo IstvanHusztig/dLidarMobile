@@ -17,6 +17,7 @@ import com.dlidar.mobile.data.scanner.session.SessionSignalHandler
 import com.dlidar.mobile.data.scanner.session.SessionStop
 import com.dlidar.mobile.domain.model.Compatibility
 import com.dlidar.mobile.domain.model.ConnectionState
+import com.dlidar.mobile.domain.model.RecordingState
 import com.dlidar.mobile.domain.model.ScannerCandidate
 import com.dlidar.mobile.domain.model.ScannerSnapshot
 import com.dlidar.mobile.domain.model.Warning
@@ -79,8 +80,8 @@ class ScannerRepositoryImpl(
     private val unfinished = mutableSetOf<Job>()
     /**
      * Warnings the user dismissed, by kind and text, so a status.get that still lists them does
-     * not bring them back. A key is forgotten once the scanner's list no longer has it, or when
-     * a warning event raises it again. Guarded by [lock].
+     * not bring them back. A key is forgotten once the scanner's list no longer has it, when a
+     * warning event raises it again, or when a recording starts. Guarded by [lock].
      */
     private val dismissed = mutableSetOf<Pair<WarningKind, String>>()
     /** Set only after hello allowed further requests. */
@@ -155,6 +156,12 @@ class ScannerRepositoryImpl(
             synchronized(lock) {
                 if (current !== this) return
                 if (input is ScannerInput.WarningRaised) dismissed -= input.warning.key
+                // Spec: the scanner empties its warning list when a recording starts.
+                if (input is ScannerInput.StateChanged && input.status.state == RecordingState.Preparing &&
+                    state.value.status?.state != RecordingState.Preparing
+                ) {
+                    dismissed.clear()
+                }
                 reduce(input)
             }
         }

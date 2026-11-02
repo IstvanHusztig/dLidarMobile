@@ -240,6 +240,44 @@ class ScannerRepositoryTest {
     }
 
     @Test
+    fun `a slow first answer ends the wait for the next hello early`() = runTest {
+        fake.silentCommands += "hello"
+        val repository = connected()
+        advanceTimeBy(5_001)
+        runCurrent()
+        assertEquals(Compatibility.NotAnswering, repository.snapshot.value.compatibility)
+
+        fake.progress(1, 10)
+        advanceTimeBy(1_001)
+        runCurrent()
+        assertEquals(2, fake.commandNames.count { it == "hello" })
+
+        advanceTimeBy(5_001)
+        runCurrent()
+        assertEquals(Compatibility.Unknown, repository.snapshot.value.compatibility)
+        assertTrue("status.get" in fake.commandNames)
+    }
+
+    @Test
+    fun `a recording that starts forgets dismissed warnings`() = runTest {
+        val repository = connected()
+        fake.warning("lens_dirty", "Clean the lens.")
+        runCurrent()
+        repository.dismissWarning(repository.snapshot.value.warnings.single().id)
+        fake.changeStatus(FakeStatus(state = "preparing"))
+        runCurrent()
+
+        fake.dropLink()
+        runCurrent()
+        // Raised while the link is down: the phone only learns of it through status.get.
+        fake.warning("lens_dirty", "Clean the lens.")
+        advanceTimeBy(1_001)
+        runCurrent()
+
+        assertEquals(1, repository.snapshot.value.warnings.size)
+    }
+
+    @Test
     fun `an older scanner asks for a scanner update and gets nothing more`() = runTest {
         fake.hello = FakeScanner.defaultHello(protocol = 0)
         val repository = connected()

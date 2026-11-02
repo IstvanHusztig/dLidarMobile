@@ -37,7 +37,7 @@ internal class SessionHandshake(
         while (hello.isTimeout() && !session.hasReceivedMessages) {
             record(ScannerInput.CompatibilityResolved(Compatibility.NotAnswering))
             logger.warn(TAG, "no protocol message on this link; asking hello again in $notAnsweringRetry")
-            delay(notAnsweringRetry)
+            waitUntilRetryOrAnswer()
             hello = session.call(HelloCommand)
         }
         val compatibility = CompatibilityChecker.check(hello)
@@ -66,10 +66,20 @@ internal class SessionHandshake(
         }
     }
 
+    /** Waits [notAnsweringRetry], or less once the scanner sent a protocol message (a slow first answer). */
+    private suspend fun waitUntilRetryOrAnswer() {
+        var waited = Duration.ZERO
+        while (waited < notAnsweringRetry && !session.hasReceivedMessages) {
+            delay(ANSWER_POLL)
+            waited += ANSWER_POLL
+        }
+    }
+
     private fun CallResult<*>.isTimeout() = this is CallResult.Failure && failure == CallFailure.Timeout
 
     companion object {
         private const val TAG = "Scanner"
         val NOT_ANSWERING_RETRY: Duration = 30.seconds
+        private val ANSWER_POLL = 1.seconds
     }
 }

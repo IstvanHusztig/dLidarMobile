@@ -40,6 +40,7 @@ class AndroidBleTransport internal constructor(
     private val availability: BluetoothAvailability,
     private val scope: CoroutineScope,
     private val logger: Logger,
+    private val connectTimeout: Duration = 20.seconds,
     /** Long enough for Android to pair during setup, including the user's confirmation. */
     private val setupTimeout: Duration = 45.seconds,
 ) : ByteTransport {
@@ -61,7 +62,7 @@ class AndroidBleTransport internal constructor(
         var opened: GattConnection? = null
         var adopted = false
         try {
-            val outcome = withTimeoutOrNull(setupTimeout) {
+            val outcome = withTimeoutOrNull(connectTimeout) {
                 connector.connect(target).also { if (it is GattConnectOutcome.Connected) opened = it.connection }
             }
             val gatt = when (outcome) {
