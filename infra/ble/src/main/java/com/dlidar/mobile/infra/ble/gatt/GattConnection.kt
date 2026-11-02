@@ -24,12 +24,18 @@ internal interface GattConnection {
     suspend fun requestMtu(mtu: Int): Int?
 
     /** Turns on TX notifications, including the CCCD write. */
-    suspend fun enableTxNotifications(): Boolean
+    suspend fun enableTxNotifications(): GattWrite
 
-    suspend fun writeRx(piece: ByteArray, withResponse: Boolean): Boolean
+    suspend fun writeRx(piece: ByteArray, withResponse: Boolean): GattWrite
 
     suspend fun close()
 }
+
+/**
+ * Result of a GATT write. When the scanner needs an encrypted link and the phone is not bonded,
+ * Android pairs on its own and repeats the write; [NotPaired] means that pairing failed.
+ */
+internal enum class GattWrite { Ok, Failed, NotPaired }
 
 internal fun interface GattConnector {
     suspend fun connect(address: String): GattConnectOutcome

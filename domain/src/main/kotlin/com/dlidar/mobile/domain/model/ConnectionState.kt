@@ -22,6 +22,12 @@ sealed interface ConnectionState {
 
     /** Connecting cannot succeed until the user fixes something. The app does not retry on its own. */
     data class Failed(val reason: Reason) : ConnectionState {
-        enum class Reason { PermissionMissing, NotADLidar, Other }
+        enum class Reason {
+            PermissionMissing,
+            NotADLidar,
+            /** The scanner needs a bonded phone, and pairing did not succeed (its pairing window was closed). */
+            NotPaired,
+            Other,
+        }
     }
 }

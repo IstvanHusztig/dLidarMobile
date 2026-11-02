@@ -66,8 +66,8 @@ apply `kotlin-android`), Kotlin 2.4, compileSdk 37, minSdk 26, Java 17 bytecode.
 - `ConnectionState`: `Disconnected`, `Connecting(attempt)`, `Connected`,
   `WaitingToRetry(nextAttempt, retryInMillis)`, `WaitingForBluetooth` (reconnects once Bluetooth
   is on), `Refused(reason)` (`too_many_clients`: another phone is connected) and
-  `Failed(reason)` (permission missing, not a dLidar). The app does not retry on its own after
-  `Refused` or `Failed`.
+  `Failed(reason)` (permission missing, not a dLidar, not paired). The app does not retry on its
+  own after `Refused` or `Failed`.
 - `RecordingState`: `Idle`, `Preparing`, `Recording`, `Finalizing`, `Error`, `Unknown(raw)`.
 - `ScannerStatus`: `state`, `chunks: Long`, `points: Long`, `lastOk`, `location`.
 - `DeviceInfo`: `version`, `sensor: SensorType` (`UnitreeL2`, `LivoxMid360s`, `Unknown(raw)`),
@@ -76,7 +76,10 @@ apply `kotlin-android`), Kotlin 2.4, compileSdk 37, minSdk 26, Java 17 bytecode.
   `text` (shown verbatim), `receivedAt`.
 - `RecordingSummary`: `imuMode`, `decision`, `imuIn`, `imuOut`, `lostSamples`, `receivedAt`.
   `imuMode` and `decision` stay strings because their values are not documented.
-- `Compatibility`: `Unknown`, `Compatible`, `UpdateAppRequired(serverProtocol)`.
+- `Compatibility`: `Unknown`, `Compatible`, `NotAnswering` (the link is up but nothing the
+  scanner sends is a protocol message, for example its echo test service),
+  `UpdateAppRequired(serverProtocol)` and `UpdateScannerRequired(serverProtocol)`.
+  `allowsRequests` is false for the last three: only `hello` is sent.
 - `ScannerCandidate`: `id` (an opaque handle), `name`, `rssi`.
 - `Discovery`: `Found(candidates)` or `Failed(problem)`.
 
@@ -110,12 +113,14 @@ Later: `StartRecording`, `StopRecording`, `PairScanner`, `ScanWifiNetworks`, `Co
 sealed interface Outcome<out T> { Ok(value); Failed(error: DomainError) }
 sealed interface DomainError {
     NotConnected; LinkLost; Timeout; RequestTooLarge; Busy; InvalidResponse
-    IncompatibleProtocol    // after "update the app": nothing is sent
+    IncompatibleProtocol    // no common version, or the scanner does not answer: nothing is sent
     Remote(code, message)   // ok:false; unknown codes land here too, as generic errors
 }
 ```
-Unsolicited `id:null` errors are not results of a call. They change the snapshot (for example
-`too_many_clients` → `ConnectionState.Refused`) or are logged.
+Errors with `id:null` follow the spec: `too_large`, and `bad_request` for a request whose id
+could not be read, answer the oldest pending request (they take its place in the response
+order). `too_many_clients` belongs to no request; it changes the snapshot
+(`ConnectionState.Refused`). Others are logged.
 Exceptions do not cross a layer boundary. Each layer turns its own failures into sealed results.
 `CancellationException` is never swallowed.
 
@@ -151,7 +156,7 @@ values replace the defaults for that session.
 | `FrameDecoder` | Collects bytes up to `\n` and decodes UTF-8 only once a line is complete. A line longer than the limit is reported as `Oversized` and dropped up to its `\n`; invalid UTF-8 is reported as `Malformed`. It does not rely on each message starting in a fresh notification, so it also handles several messages in one piece. |
 | `FrameSplitter` | Turns one message plus `\n` into pieces of at most `maxWritePiece` bytes. Refuses a request over the limit before anything is sent. |
 | `MessageCodec` | Line ↔ `Inbound` (`Response`, `UnsolicitedError`, `Event`, `Unparsed`) and request → line. Ignores unknown fields. Lines from the echo service become `Unparsed`. |
-| `RequestDispatcher` | Ids within 0..2147483647, wrapping and skipping ids still pending; the table of pending calls; matching by `id`; failing everything when the link ends. Thread-safe. |
+| `RequestDispatcher` | Ids within 0..2147483647, wrapping and skipping ids still pending; the table of pending calls; matching by `id`, or the oldest call for an error without id; failing everything when the link ends. Thread-safe. |
 | `EventSequencer` | Tracks `seq` on one connection and reports a `SequenceGap` when `seq` is not last+1, is missing, or `dropped` is present. |
 | `DefaultProtocolSession : ProtocolSession` | One connection, from `Up` to `Down`. One reader coroutine decodes everything in arrival order; a write mutex keeps the pieces of two requests from interleaving; each call has its timeout. Once a request's first piece is out, the rest is written even if the caller is cancelled; if a later piece fails, the session reports `StreamBroken`, because the scanner now holds a partial line, and the link is reopened. A cancelled call forgets its id. `hasReceivedMessages` and `awaitDrained()` let the repository judge how a link ended. Created by `ProtocolSessionFactory`, which is injected into the repository. |
 
@@ -191,16 +196,16 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
 
 | Class | Responsibility |
 |---|---|
-| `ScannerRepositoryImpl : ScannerRepository` | Orchestrates the connection lifecycle. Each `connect()` starts a `Run`, which connects, runs sessions and reconnects. A run that is no longer current cannot change the snapshot, and a new run cancels every unfinished run at once and waits for all their cleanups. The session goes live for `refreshStatus()` only after `hello` allowed further requests. A session that ended with its link still up (a broken stream) releases the link before the backoff. When the link drops, it lets the reader finish (up to 1 s), so a `too_many_clients` sent just before the drop still counts as a refusal. Backoff starts over only after a link on which the scanner answered. After a protocol mismatch, `refreshStatus()` fails with `IncompatibleProtocol`. |
-| `SessionHandshake` | Every link up: `hello` first, because its answer decides compatibility, then `status.get` (through the refresher) and `info.get` together. If `hello` returns `unknown_command` or times out, compatibility is `Unknown` and the rest still goes out, because `hello` is optional. On `unsupported_version` or a protocol other than 1, nothing more is sent. |
+| `ScannerRepositoryImpl : ScannerRepository` | Orchestrates the connection lifecycle. Each `connect()` starts a `Run`, which connects, runs sessions and reconnects. A run that is no longer current cannot change the snapshot, and a new run cancels every unfinished run at once and waits for all their cleanups. The session goes live for `refreshStatus()` only after `hello` allowed further requests. A session that ended with its link still up (a broken stream) releases the link before the backoff. When the link drops, it lets the reader finish (up to 1 s), so a `too_many_clients` sent just before the drop still counts as a refusal. Backoff starts over only after a link on which the scanner answered. While `compatibility.allowsRequests` is false, `refreshStatus()` fails with `IncompatibleProtocol`. `status.get` brings the scanner's warning list and last summary; warnings the user dismissed stay hidden until the scanner's list drops them or a `warning` event raises them again. |
+| `SessionHandshake` | Every link up: `hello` first, because its answer decides compatibility, then `status.get` (through the refresher) and `info.get` together. If `hello` returns `unknown_command`, or times out after the scanner sent any protocol message, compatibility is `Unknown` and the rest still goes out, because `hello` is optional. If it times out and nothing the scanner sent was a protocol message, compatibility is `NotAnswering` and only `hello` is repeated, every 30 s (app choice), so a scanner running its echo service is not flooded. On `unsupported_version` or a protocol other than 1, nothing more is sent. |
 | `SessionSignalHandler` | Routes a session's signals: events become inputs through the decoders, gaps a refresh; `too_many_clients` and `StreamBroken` end the session. |
 | `CallRetry` | *App policy:* `status.get` and `info.get` must get through on every connection, so a timeout or `busy` is retried after 1, 2, 4, 8 s. Other failures are not, because the answer would not change. |
 | `ScannerEventDecoders` | Registry of `ScannerEventDecoder`s (`state`, `warning`, `progress`, `summary`). A new event is a new decoder (OCP). Unknown events are ignored, and events whose data does not fit are logged. |
-| `ScannerStateReducer` | A pure function `(ScannerSnapshot, ScannerInput) -> ScannerSnapshot`. Inputs carry their own time, so the reducer needs no clock. *App choices:* a `state` event keeps the last `freeBytes`; `progress` before any status is dropped; warnings are capped at the newest 20; a different scanner starts from an empty snapshot. |
+| `ScannerStateReducer` | A pure function `(ScannerSnapshot, ScannerInput) -> ScannerSnapshot`. Inputs carry their own time, so the reducer needs no clock. *App choices:* a `state` event keeps the last `freeBytes`; `progress` before any status is dropped; warnings are capped at the newest 20, and a warning with the same kind and text is shown once; the warning list of `status.get` replaces the shown one, keeping the id and time of warnings already shown; a different scanner starts from an empty snapshot. |
 | `ProtocolMappers` | DTO → domain entity, including the `Unknown(raw)` mapping, and `CallFailure` → `DomainError`. |
 | `StatusRefresher` | Merges refresh requests: at most one `status.get` in flight plus one queued; repeats it per `CallRetry`. |
 | `ReconnectPolicy` | *App policy, not protocol:* backoff of 1, 2, 4 … 30 s. While Bluetooth is off it checks every 3 s (a local check). It does not retry when the user disconnected, a permission is missing, or the device is not a dLidar. |
-| `CompatibilityChecker` | Turns the `hello` result into a `Compatibility`. `hello` is read leniently (only `protocol` and `limits`), so a hello whose other fields changed shape still reveals a mismatch. |
+| `CompatibilityChecker` | Turns the `hello` result into a `Compatibility`. `hello` is read leniently (only `protocol` and `limits`), so a hello whose other fields changed shape still reveals a mismatch. Spec: an app above the scanner's newest version means "update the scanner", otherwise "update the app". |
 
 ---
 
@@ -228,10 +233,14 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
   stay in order.
 - Writes use write-with-response, so GATT does the flow control (an app choice; open
   question 4).
-- `BleScannerFinder : ScannerFinder` scans with filters on the service UUID or the name
-  `dLidar`, and reports missing permissions, Bluetooth off and location off (Android 11 and
+- `BleScannerFinder : ScannerFinder` scans with a filter on the service UUID only (the scanner
+  always advertises it in the advertisement itself; the name may change), and reports missing permissions, Bluetooth off and location off (Android 11 and
   older) as problems.
 - `BlePermissions` gives the runtime permissions for each API level. `:app` asks the user.
+- The scanner needs a bonded phone for every request: RX (and possibly the CCCD) needs an
+  encrypted link. Android pairs on its own on the refused write and repeats it, so writes may
+  wait up to 30 s and the setup up to 45 s. When the write still fails with status 5, 15 or
+  0x89, the link goes down with `DownReason.NotPaired`, which is not retried.
 
 ---
 
@@ -287,7 +296,8 @@ Receive (one reader coroutine per connection, in arrival order):
      ├─ Response ─────────► RequestDispatcher ─► onAnswer (state update) ─► call() returns
      ├─ Event ────────────► SessionListener ─► ScannerEventDecoders ─► ScannerStateReducer
      │                  └─► EventSequencer ─► gap ─► StatusRefresher ─► status.get
-     ├─ UnsolicitedError ─► SessionListener (too_many_clients ─► Refused)
+     ├─ UnsolicitedError ─► too_large / bad_request: oldest pending call
+     │                  └─► SessionListener (too_many_clients ─► Refused)
      └─ Unparsed ─────────► log
   StateFlow<ScannerSnapshot> ─► ObserveScanner ─► StatusViewModel ─► StatusScreen
 

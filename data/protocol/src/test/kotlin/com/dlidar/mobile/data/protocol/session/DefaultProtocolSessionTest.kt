@@ -174,6 +174,49 @@ class DefaultProtocolSessionTest {
     }
 
     @Test
+    fun `too_large and bad_request without id answer the oldest pending request`() = runTest {
+        val session = startSession()
+        val first = async { session.call(ValueCommand) }
+        val second = async { session.call(ValueCommand) }
+        runCurrent()
+        val secondId = connection.requests().last()["id"]!!.jsonPrimitive.int
+
+        connection.send("""{"id":null,"ok":false,"error":{"code":"too_large","message":"line too long"}}""")
+        val failure = (first.await() as CallResult.Failure).failure as CallFailure.Remote
+        assertEquals(ErrorCode.TooLarge, failure.error.code)
+        assertTrue(second.isActive)
+
+        connection.send("""{"id":null,"ok":false,"error":{"code":"bad_request","message":"no id"}}""")
+        assertEquals(ErrorCode.BadRequest, ((second.await() as CallResult.Failure).failure as CallFailure.Remote).error.code)
+        assertTrue(signals.isEmpty())
+
+        // A late answer for the request that already got the error is ignored.
+        connection.send("""{"id":$secondId,"ok":true,"result":{"value":1}}""")
+        runCurrent()
+        assertTrue(signals.isEmpty())
+    }
+
+    @Test
+    fun `an error without id and without a pending request goes to the listener`() = runTest {
+        startSession()
+        connection.send("""{"id":null,"ok":false,"error":{"code":"bad_request","message":"no id"}}""")
+        runCurrent()
+        assertEquals(ErrorCode.BadRequest, (signals.single() as SessionSignal.UnsolicitedError).error.code)
+    }
+
+    @Test
+    fun `too_many_clients never answers a pending request`() = runTest {
+        val session = startSession()
+        val call = async { session.call(ValueCommand) }
+        runCurrent()
+        connection.send("""{"id":null,"ok":false,"error":{"code":"too_many_clients","message":"one phone only"}}""")
+        runCurrent()
+        assertTrue(call.isActive)
+        assertEquals(ErrorCode.TooManyClients, (signals.single() as SessionSignal.UnsolicitedError).error.code)
+        call.cancel()
+    }
+
+    @Test
     fun `events reach the listener and a seq jump or dropped field adds a gap`() = runTest {
         startSession()
         connection.send("""{"event":"progress","seq":1,"data":{}}""")

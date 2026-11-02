@@ -13,7 +13,16 @@ internal sealed interface ScannerInput {
     data class TargetSelected(val candidate: ScannerCandidate) : ScannerInput
     data class ConnectionChanged(val state: ConnectionState) : ScannerInput
     data class CompatibilityResolved(val compatibility: Compatibility) : ScannerInput
-    data class StatusLoaded(val status: ScannerStatus, val freeBytes: Long?) : ScannerInput
+    /**
+     * The answer to status.get. [warnings] is the scanner's whole list (already without the ones
+     * the user dismissed), or null when the answer had none; [summary] is null when it had none.
+     */
+    data class StatusLoaded(
+        val status: ScannerStatus,
+        val freeBytes: Long?,
+        val warnings: List<Warning>? = null,
+        val summary: RecordingSummary? = null,
+    ) : ScannerInput
     data class InfoLoaded(val info: DeviceInfo) : ScannerInput
     data class StateChanged(val status: ScannerStatus) : ScannerInput
     data class ProgressReported(val chunks: Long, val points: Long) : ScannerInput

@@ -63,9 +63,41 @@ class StatusScreenTest {
     }
 
     @Test
-    fun `update the app is shown when the protocol does not match`() {
+    fun `update the app is shown when the scanner is newer`() {
         compose.setContent { StatusScreen(live.copy(updateAppRequired = true), onAction = {}) }
-        compose.onNodeWithText("The scanner speaks a different protocol version than this app. Please update the app.").assertExists()
+        compose.onNodeWithText("The scanner speaks a newer protocol version than this app. Please update the app.").assertExists()
+        compose.onNodeWithText("Refresh").assertDoesNotExist()
+    }
+
+    @Test
+    fun `update the scanner is shown when the scanner is older`() {
+        compose.setContent { StatusScreen(live.copy(updateScannerRequired = true), onAction = {}) }
+        compose.onNodeWithText("The scanner speaks an older protocol version than this app. Please update the scanner.").assertExists()
+    }
+
+    @Test
+    fun `a scanner that does not answer is explained`() {
+        compose.setContent { StatusScreen(live.copy(notAnswering = true), onAction = {}) }
+        compose.onNodeWithText("does not answer", substring = true).assertExists()
+        compose.onNodeWithText("Refresh").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a failed pairing says what to do and offers retry`() {
+        val failed = live.copy(
+            connection = ConnectionState.Failed(ConnectionState.Failed.Reason.NotPaired),
+            isLive = false,
+            canRetry = true,
+        )
+        compose.setContent { StatusScreen(failed, onAction = {}) }
+        compose.onNodeWithText("pairing window", substring = true).assertExists()
+        compose.onNodeWithText("Retry").assertExists()
+    }
+
+    @Test
+    fun `the IMU mode is shown readably`() {
+        compose.setContent { StatusScreen(live.copy(summary = live.summary!!.copy(imuMode = "host_aligned")), onAction = {}) }
+        compose.onNodeWithText("Host aligned (fallback)").assertExists()
     }
 
     @Test

@@ -8,8 +8,8 @@ Each milestone names the scanner-side answers it needs (numbers refer to
 | # | Milestone | Status |
 |---|-----------|--------|
 | 1 | BLE link, protocol v1, status screen | Done; link verified on device (echo service) |
-| 2 | Real-server bring-up | Next |
-| 3 | Pairing and bonding | Designed ([pairing.md](design/pairing.md)) |
+| 2 | Real-server bring-up | App side done (scanner answers applied, traffic log); waits for the scanner's protocol server |
+| 3 | Pairing and bonding | Failed pairing handled; the rest designed ([pairing.md](design/pairing.md)) |
 | 4 | Recording control | Planned |
 | 5 | Wi-Fi setup | Designed ([wifi-setup.md](design/wifi-setup.md)) |
 | 6 | Logs and diagnostics | Planned |

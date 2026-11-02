@@ -91,6 +91,7 @@ class TrafficLog(
         is DownReason.ConnectionLost -> "connection lost (status ${reason.status})"
         DownReason.ServiceNotFound -> "scanner service not found"
         is DownReason.SetupFailed -> "setup failed at ${reason.step}"
+        DownReason.NotPaired -> "not paired"
         DownReason.BluetoothOff -> "Bluetooth off"
         DownReason.PermissionMissing -> "permission missing"
     }

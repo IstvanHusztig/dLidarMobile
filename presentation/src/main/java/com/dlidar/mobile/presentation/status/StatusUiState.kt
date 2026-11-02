@@ -13,6 +13,9 @@ data class StatusUiState(
     val scannerName: String? = null,
     val connection: ConnectionState = ConnectionState.Disconnected,
     val updateAppRequired: Boolean = false,
+    val updateScannerRequired: Boolean = false,
+    /** Connected, but the scanner answers no request (for example, its test service runs). */
+    val notAnswering: Boolean = false,
     /** Values are live only while connected; otherwise they are the last known ones. */
     val isLive: Boolean = false,
     val canRetry: Boolean = false,
@@ -28,6 +31,9 @@ data class StatusUiState(
             scannerName = snapshot.target?.name,
             connection = snapshot.connection,
             updateAppRequired = snapshot.compatibility is Compatibility.UpdateAppRequired,
+            updateScannerRequired = snapshot.compatibility is Compatibility.UpdateScannerRequired,
+            notAnswering = snapshot.compatibility == Compatibility.NotAnswering &&
+                snapshot.connection == ConnectionState.Connected,
             isLive = snapshot.connection == ConnectionState.Connected,
             canRetry = snapshot.connection is ConnectionState.Refused ||
                 snapshot.connection is ConnectionState.Failed ||

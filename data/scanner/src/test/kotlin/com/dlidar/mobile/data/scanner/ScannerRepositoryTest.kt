@@ -203,15 +203,110 @@ class ScannerRepositoryTest {
     }
 
     @Test
-    fun `a hello that never answers still leads to status get`() = runTest {
+    fun `a hello that never answers still leads to status get once the scanner said anything`() = runTest {
         fake.silentCommands += "hello"
         val repository = connected()
+        fake.progress(1, 10)
         assertFalse("status.get" in fake.commandNames)
 
         advanceTimeBy(5_001)
         runCurrent()
         assertEquals(Compatibility.Unknown, repository.snapshot.value.compatibility)
         assertEquals(RecordingState.Idle, repository.snapshot.value.status?.state)
+    }
+
+    @Test
+    fun `a scanner that only echoes gets nothing but hello, every 30 s, until it answers`() = runTest {
+        fake.echoMode = true
+        val repository = connected()
+        advanceTimeBy(5_001)
+        runCurrent()
+
+        assertEquals(Compatibility.NotAnswering, repository.snapshot.value.compatibility)
+        assertEquals(ConnectionState.Connected, repository.snapshot.value.connection)
+        assertEquals(Outcome.Failed(DomainError.IncompatibleProtocol), repository.refreshStatus())
+        assertEquals(listOf("hello"), fake.commandNames)
+
+        advanceTimeBy(30_000)
+        runCurrent()
+        assertEquals(listOf("hello", "hello"), fake.commandNames)
+
+        fake.echoMode = false
+        advanceTimeBy(35_000)
+        runCurrent()
+        assertEquals(Compatibility.Compatible, repository.snapshot.value.compatibility)
+        assertEquals(RecordingState.Idle, repository.snapshot.value.status?.state)
+        assertEquals(1, fake.connectAttempts)
+    }
+
+    @Test
+    fun `an older scanner asks for a scanner update and gets nothing more`() = runTest {
+        fake.hello = FakeScanner.defaultHello(protocol = 0)
+        val repository = connected()
+        assertEquals(Compatibility.UpdateScannerRequired(0), repository.snapshot.value.compatibility)
+        assertEquals(Outcome.Failed(DomainError.IncompatibleProtocol), repository.refreshStatus())
+        assertEquals(listOf("hello"), fake.commandNames)
+    }
+
+    @Test
+    fun `a failed pairing is not retried`() = runTest {
+        val repository = repository()
+        fake.connectFailures += DownReason.NotPaired
+        repository.connect(candidate)
+        runCurrent()
+        advanceTimeBy(60_000)
+
+        assertEquals(ConnectionState.Failed(ConnectionState.Failed.Reason.NotPaired), repository.snapshot.value.connection)
+        assertEquals(1, fake.connectAttempts)
+    }
+
+    @Test
+    fun `status get brings warnings and the summary missed while the link was down`() = runTest {
+        val repository = connected()
+        fake.dropLink()
+        runCurrent()
+        fake.warning("lens_dirty", "Clean the lens.")
+        fake.summary(imuMode = "host_aligned")
+
+        advanceTimeBy(1_001)
+        runCurrent()
+
+        val snapshot = repository.snapshot.value
+        assertEquals(ConnectionState.Connected, snapshot.connection)
+        assertEquals(listOf(WarningKind.LensDirty to "Clean the lens."), snapshot.warnings.map { it.kind to it.text })
+        assertEquals("host_aligned", snapshot.lastSummary?.imuMode)
+    }
+
+    @Test
+    fun `a warning keeps its id across refreshes and a new recording clears the list`() = runTest {
+        val repository = connected()
+        fake.warning("lens_dirty", "Clean the lens.")
+        runCurrent()
+        val id = repository.snapshot.value.warnings.single().id
+
+        repository.refreshStatus()
+        assertEquals(id, repository.snapshot.value.warnings.single().id)
+
+        fake.changeStatus(FakeStatus(state = "preparing"))
+        repository.refreshStatus()
+        assertTrue(repository.snapshot.value.warnings.isEmpty())
+    }
+
+    @Test
+    fun `a dismissed warning stays dismissed after a refresh until it is raised again`() = runTest {
+        val repository = connected()
+        fake.warning("lens_dirty", "Clean the lens.")
+        runCurrent()
+        repository.dismissWarning(repository.snapshot.value.warnings.single().id)
+
+        repository.refreshStatus()
+        assertTrue(repository.snapshot.value.warnings.isEmpty())
+
+        fake.warning("lens_dirty", "Clean the lens.")
+        runCurrent()
+        assertEquals(1, repository.snapshot.value.warnings.size)
+        repository.refreshStatus()
+        assertEquals(1, repository.snapshot.value.warnings.size)
     }
 
     @Test

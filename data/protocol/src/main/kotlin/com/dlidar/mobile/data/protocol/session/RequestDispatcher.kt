@@ -40,6 +40,14 @@ internal class RequestDispatcher(firstId: Int = 1) {
         }
     }
 
+    /** Takes the oldest pending call, the one the scanner answers next. */
+    fun takeOldest(): PendingCall<*>? {
+        synchronized(lock) {
+            val oldest = pending.keys.firstOrNull() ?: return null
+            return pending.remove(oldest)
+        }
+    }
+
     /** Fails every pending call and refuses new ones. */
     fun close(failure: CallFailure) {
         val calls = synchronized(lock) {

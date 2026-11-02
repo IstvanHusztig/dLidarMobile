@@ -55,6 +55,7 @@ class MappingAndPolicyTest {
         fun hello(protocol: Int?) = CallResult.Success(HelloInfo(protocol = protocol, maxRequestBytes = null, maxMessageBytes = null))
         assertEquals(Compatibility.Compatible, CompatibilityChecker.check(hello(1)))
         assertEquals(Compatibility.UpdateAppRequired(2), CompatibilityChecker.check(hello(2)))
+        assertEquals(Compatibility.UpdateScannerRequired(0), CompatibilityChecker.check(hello(0)))
         assertEquals(Compatibility.Unknown, CompatibilityChecker.check(hello(null)))
 
         val unsupported = RemoteError(
@@ -65,6 +66,15 @@ class MappingAndPolicyTest {
         assertEquals(
             Compatibility.UpdateAppRequired(2),
             CompatibilityChecker.check(CallResult.Failure(CallFailure.Remote(unsupported))),
+        )
+        val older = RemoteError(
+            ErrorCode.UnsupportedVersion,
+            "no",
+            buildJsonObject { put("supported", buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive(0)) }) },
+        )
+        assertEquals(
+            Compatibility.UpdateScannerRequired(0),
+            CompatibilityChecker.check(CallResult.Failure(CallFailure.Remote(older))),
         )
         val unknownCommand = RemoteError(ErrorCode.UnknownCommand, "no", JsonObject(emptyMap()))
         assertEquals(Compatibility.Unknown, CompatibilityChecker.check(CallResult.Failure(CallFailure.Remote(unknownCommand))))
@@ -78,6 +88,7 @@ class MappingAndPolicyTest {
         assertEquals(30.seconds, policy.delayAfter(1000))
         assertTrue(policy.shouldRetry(DownReason.ConnectionLost(8)))
         assertFalse(policy.shouldRetry(DownReason.PermissionMissing))
+        assertFalse(policy.shouldRetry(DownReason.NotPaired))
         assertTrue(policy.shouldRetry(DownReason.BluetoothOff))
         assertEquals(listOf(1, 2, 4, 8, 8), (1..5).map { CallRetry.delayAfter(it).inWholeSeconds.toInt() })
     }

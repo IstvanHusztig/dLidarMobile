@@ -22,6 +22,7 @@ class ReconnectPolicy(
     fun shouldRetry(reason: DownReason): Boolean = when (reason) {
         DownReason.Closed,
         DownReason.ServiceNotFound,
+        DownReason.NotPaired,
         DownReason.PermissionMissing -> false
         DownReason.BluetoothOff,
         is DownReason.ConnectFailed,

@@ -24,6 +24,10 @@ internal data class StatusDto(
     @SerialName("last_ok") val lastOk: Boolean,
     val location: String,
     @SerialName("free_bytes") val freeBytes: Long? = null,
+    /** The current or last recording's warnings, the 16 newest. Null when the field is absent. */
+    val warnings: List<WarningDto>? = null,
+    /** The last recording's summary; null before the first recording. */
+    val summary: SummaryDto? = null,
 )
 
 @Serializable

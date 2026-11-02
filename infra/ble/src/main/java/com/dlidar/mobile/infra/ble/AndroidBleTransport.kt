@@ -14,6 +14,7 @@ import com.dlidar.mobile.infra.ble.gatt.BluetoothAvailability
 import com.dlidar.mobile.infra.ble.gatt.GattConnectOutcome
 import com.dlidar.mobile.infra.ble.gatt.GattConnection
 import com.dlidar.mobile.infra.ble.gatt.GattConnector
+import com.dlidar.mobile.infra.ble.gatt.GattWrite
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,13 +32,16 @@ import kotlin.time.Duration.Companion.seconds
  * [ByteTransport] over BLE GATT. The link is reported `Up` only after the services are found,
  * the MTU is negotiated (247 requested) and TX notifications are on, so nothing is written to RX
  * before that. Writes use write-with-response, so GATT does the flow control (an app choice).
+ * The scanner needs a bonded phone; when Android's own pairing attempt fails, the link goes down
+ * with [DownReason.NotPaired].
  */
 class AndroidBleTransport internal constructor(
     private val connector: GattConnector,
     private val availability: BluetoothAvailability,
     private val scope: CoroutineScope,
     private val logger: Logger,
-    private val setupTimeout: Duration = 20.seconds,
+    /** Long enough for Android to pair during setup, including the user's confirmation. */
+    private val setupTimeout: Duration = 45.seconds,
 ) : ByteTransport {
 
     private val linkState = MutableStateFlow<LinkState>(LinkState.Idle)
@@ -68,7 +72,7 @@ class AndroidBleTransport internal constructor(
             when (val setup = withTimeoutOrNull(setupTimeout) { setUp(gatt) } ?: Setup.Failed(DownReason.SetupFailed("timeout"))) {
                 is Setup.Failed -> fail(setup.reason)
                 is Setup.Ready -> {
-                    val connection = BleConnection(gatt, maxWritePiece = setup.mtu - ATT_HEADER_BYTES)
+                    val connection = BleConnection(gatt, maxWritePiece = setup.mtu - ATT_HEADER_BYTES, onNotPaired = ::dropNotPaired)
                     adopted = true
                     active = connection
                     linkState.value = LinkState.Up(connection)
@@ -96,8 +100,11 @@ class AndroidBleTransport internal constructor(
             logger.warn(TAG, "MTU request failed; continuing with the default MTU ${BleUuids.DEFAULT_MTU}")
             BleUuids.DEFAULT_MTU
         }
-        if (!gatt.enableTxNotifications()) return Setup.Failed(DownReason.SetupFailed("notifications"))
-        return Setup.Ready(mtu)
+        return when (gatt.enableTxNotifications()) {
+            GattWrite.Ok -> Setup.Ready(mtu)
+            GattWrite.NotPaired -> Setup.Failed(DownReason.NotPaired)
+            GattWrite.Failed -> Setup.Failed(DownReason.SetupFailed("notifications"))
+        }
     }
 
     private suspend fun onDisconnected(connection: BleConnection, status: Int) {
@@ -107,6 +114,19 @@ class AndroidBleTransport internal constructor(
             connection.close()
             linkState.value = LinkState.Down(DownReason.ConnectionLost(status))
             logger.debug(TAG) { "link lost, status $status" }
+        }
+    }
+
+    /** Ends a link whose writes are refused because the phone is not paired. */
+    private fun dropNotPaired(connection: BleConnection) {
+        scope.launch {
+            mutex.withLock {
+                if (active !== connection) return@withLock
+                active = null
+                connection.close()
+                linkState.value = LinkState.Down(DownReason.NotPaired)
+                logger.debug(TAG) { "link closed: not paired" }
+            }
         }
     }
 
@@ -129,14 +149,26 @@ class AndroidBleTransport internal constructor(
         data class Failed(val reason: DownReason) : Setup
     }
 
-    private class BleConnection(private val gatt: GattConnection, override val maxWritePiece: Int) : ByteConnection {
+    private class BleConnection(
+        private val gatt: GattConnection,
+        override val maxWritePiece: Int,
+        private val onNotPaired: (BleConnection) -> Unit,
+    ) : ByteConnection {
         @Volatile private var open = true
         override val incoming: Flow<ByteArray> = gatt.notifications.receiveAsFlow()
 
         override suspend fun write(piece: ByteArray): WriteResult {
             if (!open) return WriteResult.Failed("not connected")
             require(piece.size <= maxWritePiece) { "piece of ${piece.size} bytes exceeds $maxWritePiece" }
-            return if (gatt.writeRx(piece, withResponse = true)) WriteResult.Ok else WriteResult.Failed("GATT write failed")
+            return when (gatt.writeRx(piece, withResponse = true)) {
+                GattWrite.Ok -> WriteResult.Ok
+                GattWrite.Failed -> WriteResult.Failed("GATT write failed")
+                GattWrite.NotPaired -> {
+                    open = false
+                    onNotPaired(this)
+                    WriteResult.Failed("not paired")
+                }
+            }
         }
 
         suspend fun close() {

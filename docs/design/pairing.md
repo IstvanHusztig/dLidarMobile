@@ -1,48 +1,49 @@
-# Design: pairing and bonds (not built yet)
+# Design: pairing and bonds
 
-`recording.start` and `recording.stop` will need a bonded phone. The user presses a separate
-pairing button on the scanner, which opens a pairing window of about 2 minutes. Pairing uses
-Just Works, and writes then need an encrypted link.
+The scanner side decided (open question 33) that **every request needs a bonded phone**. From
+phone-link-ble on, RX is encrypt-write. An unbonded phone's first write is refused with ATT
+"insufficient encryption"; Android then pairs on its own (Just Works) and repeats the write.
+Pairing only succeeds while the scanner's pairing window is open: a pairing button later, and
+today `pairing_at_start`, which opens it for 120 s when dLidar starts. There is no protocol
+error such as `not_paired`. A bond allow-list (about 4 phones) and clearing come in phase 3.
 
-## Layers
+## What is built (milestone 2)
 
 | Layer | Piece |
 |---|---|
-| `:domain` | `BondState` (`NotBonded`, `Bonding`, `Bonded`, `Failed(reason)`), the `BondManager` port (`bondState(target): Flow<BondState>`, `suspend fun bond(target): Outcome<Unit>`, `forget(target)`), and the use case `PairScanner` |
-| `:infra:ble` | `AndroidBondManager`: `BluetoothDevice.createBond()`, listening to `ACTION_BOND_STATE_CHANGED`, and `getBondState()` |
-| `:data:scanner` | Maps insufficient-authentication failures to `DomainError.PairingRequired` |
-| `:presentation` | A pairing sheet that walks the user through the steps |
+| `:infra:ble` | `AndroidGattConnection` turns a write (RX or the TX CCCD) that still fails with status 5, 15 or 0x89 after Android's pairing attempt into `GattWrite.NotPaired`. Writes wait up to 30 s and the setup up to 45 s, so the user has time to confirm Android's pairing dialog. `AndroidBleTransport` then ends the link with `DownReason.NotPaired`. |
+| `:data:scanner` | `ReconnectPolicy` does not retry `NotPaired` (retrying outside the window only fails again); the repository reports `ConnectionState.Failed(NotPaired)`. |
+| `:presentation` | The status screen says: "This phone is not paired with the scanner. Open the scanner's pairing window, then tap Retry and confirm the pairing." Retry connects again, and Android pairs on the first write. |
+
+The app does not call `createBond()` itself: Android's automatic pairing on the refused write
+is enough, and it pairs with the device the app is already connected to.
 
 ## Flow
 
-1. The user taps **Pair** in the app. The app explains: "Press the pairing button on the
-   scanner, then tap Continue."
-2. The app calls `createBond()` on the connected device. With Just Works there is no PIN; on
-   some phones the system still shows a confirmation dialog.
-3. The app waits for `ACTION_BOND_STATE_CHANGED`, giving up after 2 minutes to match the
-   window.
-   - `BOND_BONDED` → done. If the link was not encrypted yet, the app reconnects so the next
-     write runs over an encrypted link.
-   - `BOND_NONE` after `BOND_BONDING` → failed. The most likely cause is that the window was
-     closed: "Press the pairing button again."
-4. The app stores nothing secret. Android keeps the keys; the app keeps only the address of the
-   bonded scanner, so it can reconnect to it on the next start.
+1. The app connects and turns notifications on; the first write is `hello`.
+2. Not bonded: the write is refused, Android pairs on its own (with Just Works some phones still
+   show a confirmation dialog) and repeats the write.
+   - Window open → the bond is made, the write goes through, and everything continues as usual.
+   - Window closed → the write fails, the link goes down with `NotPaired`, and the user is told
+     to open the window and tap Retry.
+3. Bonded: writes go through at once. Android keeps the keys; the app stores nothing secret.
 
-## Handling bonds
+## Later (phase 3, not built)
 
-- **A write that needs a bond fails** (GATT status 5 or 15, or the protocol error the scanner
-  side has not decided yet; open question 33): show "Pair this phone with the scanner" and
-  start the flow above. Do not retry the write on its own.
-- **The scanner forgot the bond** (it was reset), but the phone still holds keys: encryption
-  fails, often as status 5, 15 or 137 right after connecting. After two failures in a row, tell
-  the user to remove the scanner in Android's Bluetooth settings and pair again. Android has no
-  public API to remove a bond (`removeBond` is hidden), so the app does not use reflection.
-- **Several scanners:** bonds are kept per address, so the domain stores the bond state per
-  `ScannerCandidate.id`.
-- **Reads stay unbonded** unless the scanner side decides otherwise (open question 33), so
-  milestone 1 keeps working without a bond.
+- **The scanner forgot the bond** (reset, or removed from its allow-list) while the phone still
+  holds keys: encryption fails right after connecting, often as status 5, 15 or 0x89, or the
+  link drops. The app will tell the user to remove the scanner in Android's Bluetooth settings
+  and pair again. Android has no public API to remove a bond (`removeBond` is hidden), so the
+  app does not use reflection.
+- **Allow-list full** (about 4 phones): how the scanner reports it is not decided yet.
+- **Several scanners:** bonds are kept per address; the address is public and stable (open
+  question 29), so reconnecting by address keeps working.
+- A `BondState` flow (from `ACTION_BOND_STATE_CHANGED`) could show "pairing…" while Android's
+  dialog is open, instead of "Connected" with no values yet.
 
 ## Tests
 
-`BondManager` gets a fake in `:testing`, and the flow is tested at the use case and ViewModel
-levels. Android's bond broadcasts are only tested on a device.
+`AndroidBleTransportTest` covers a CCCD write and an RX write refused for want of pairing (the
+link ends with `NotPaired`); `ScannerRepositoryTest` checks that `NotPaired` is not retried; the
+screen test checks the message and the Retry button. Android's pairing itself is only tested on
+a device.

@@ -20,6 +20,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -79,11 +80,11 @@ internal class AndroidGattConnection(private val logger: Logger) : BluetoothGatt
     }
 
     @Suppress("DEPRECATION")
-    override suspend fun enableTxNotifications(): Boolean {
-        val tx = tx ?: return false
-        val cccd = tx.getDescriptor(BleUuids.CCCD) ?: return false
+    override suspend fun enableTxNotifications(): GattWrite {
+        val tx = tx ?: return GattWrite.Failed
+        val cccd = tx.getDescriptor(BleUuids.CCCD) ?: return GattWrite.Failed
         val value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        val result = runOp(OpKind.DESCRIPTOR_WRITE) { gatt ->
+        val result = runOp(OpKind.DESCRIPTOR_WRITE, WRITE_TIMEOUT) { gatt ->
             if (!gatt.setCharacteristicNotification(tx, true)) return@runOp false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 gatt.writeDescriptor(cccd, value) == BluetoothStatusCodes.SUCCESS
@@ -92,18 +93,18 @@ internal class AndroidGattConnection(private val logger: Logger) : BluetoothGatt
                 gatt.writeDescriptor(cccd)
             }
         }
-        return result?.status == BluetoothGatt.GATT_SUCCESS
+        return writeOutcome("CCCD write", result)
     }
 
     @Suppress("DEPRECATION")
-    override suspend fun writeRx(piece: ByteArray, withResponse: Boolean): Boolean {
-        val rx = rx ?: return false
+    override suspend fun writeRx(piece: ByteArray, withResponse: Boolean): GattWrite {
+        val rx = rx ?: return GattWrite.Failed
         val type = if (withResponse) {
             BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         } else {
             BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
         }
-        val result = runOp(OpKind.CHARACTERISTIC_WRITE) { gatt ->
+        val result = runOp(OpKind.CHARACTERISTIC_WRITE, WRITE_TIMEOUT) { gatt ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 gatt.writeCharacteristic(rx, piece, type) == BluetoothStatusCodes.SUCCESS
             } else {
@@ -112,7 +113,14 @@ internal class AndroidGattConnection(private val logger: Logger) : BluetoothGatt
                 gatt.writeCharacteristic(rx)
             }
         }
-        return result?.status == BluetoothGatt.GATT_SUCCESS
+        return writeOutcome("RX write", result)
+    }
+
+    private fun writeOutcome(what: String, result: OpResult?): GattWrite = when {
+        result == null -> GattWrite.Failed
+        result.status == BluetoothGatt.GATT_SUCCESS -> GattWrite.Ok
+        result.status in PAIRING_FAILED -> GattWrite.NotPaired.also { logger.warn(TAG, "$what refused, not paired (status ${result.status})") }
+        else -> GattWrite.Failed.also { logger.warn(TAG, "$what failed, status ${result.status}") }
     }
 
     /**
@@ -171,7 +179,7 @@ internal class AndroidGattConnection(private val logger: Logger) : BluetoothGatt
 
     // --- Operations -------------------------------------------------------------------------
 
-    private suspend fun runOp(kind: OpKind, start: (BluetoothGatt) -> Boolean): OpResult? = opMutex.withLock {
+    private suspend fun runOp(kind: OpKind, timeout: Duration = OP_TIMEOUT, start: (BluetoothGatt) -> Boolean): OpResult? = opMutex.withLock {
         val gatt = gatt ?: return@withLock null
         if (disconnectedStatus.isCompleted) return@withLock null
         val op = PendingOp(kind)
@@ -184,7 +192,7 @@ internal class AndroidGattConnection(private val logger: Logger) : BluetoothGatt
                 false
             }
             if (!started) return@withLock null
-            withTimeoutOrNull(OP_TIMEOUT) { op.result.await() }
+            withTimeoutOrNull(timeout) { op.result.await() }
         } finally {
             pending = null
         }
@@ -225,6 +233,16 @@ internal class AndroidGattConnection(private val logger: Logger) : BluetoothGatt
         const val TAG = "Gatt"
         const val LOCAL_CLOSE_STATUS = -1
         val OP_TIMEOUT = 10.seconds
+        /** A write can wait for Android to pair first, including the user's confirmation. */
+        val WRITE_TIMEOUT = 30.seconds
+        /** The stack's GATT_AUTH_FAIL (0x89); Android has no public constant for it. */
+        const val GATT_AUTH_FAIL = 0x89
+        /** The write was refused for want of an encrypted link, after Android's pairing attempt. */
+        val PAIRING_FAILED = setOf(
+            BluetoothGatt.GATT_INSUFFICIENT_AUTHENTICATION,
+            BluetoothGatt.GATT_INSUFFICIENT_ENCRYPTION,
+            GATT_AUTH_FAIL,
+        )
         val DISCONNECT_TIMEOUT = 2.seconds
     }
 }

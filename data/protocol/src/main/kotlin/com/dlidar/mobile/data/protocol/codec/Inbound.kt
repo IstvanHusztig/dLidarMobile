@@ -6,7 +6,10 @@ import kotlinx.serialization.json.JsonObject
 sealed interface Inbound {
     data class Response(val id: Int, val body: ResponseBody) : Inbound
 
-    /** An error with `"id":null`, for example too_many_clients or an unreadable request. */
+    /**
+     * An error with `"id":null`: too_many_clients, or too_large / bad_request for a request whose
+     * id could not be read (the session gives those to the oldest pending request).
+     */
     data class UnsolicitedError(val error: RemoteError) : Inbound
 
     data class Event(val event: ProtocolEvent) : Inbound

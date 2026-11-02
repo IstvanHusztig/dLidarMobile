@@ -60,10 +60,9 @@ class BleScannerFinder(context: Context) : ScannerFinder {
                 found[address] = ScannerCandidate(address, result.scanRecord?.deviceName, result.rssi)
             }
         }
-        val filters = listOf(
-            ScanFilter.Builder().setServiceUuid(ParcelUuid(BleUuids.SERVICE)).build(),
-            ScanFilter.Builder().setDeviceName(BleUuids.ADVERTISED_NAME).build(),
-        )
+        // The scanner always puts its service UUID in the advertisement itself; the name may
+        // carry a device id or move to the scan response, so it is not matched.
+        val filters = listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(BleUuids.SERVICE)).build())
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
 
         send(Discovery.Found(emptyList()))

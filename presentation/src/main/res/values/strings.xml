@@ -28,8 +28,11 @@
     <string name="conn_refused">Another phone is connected to this scanner. Only one phone can be connected at a time.</string>
     <string name="conn_failed_permission">The Bluetooth permission is missing.</string>
     <string name="conn_failed_not_dlidar">This device is not a dLidar scanner.</string>
+    <string name="conn_failed_not_paired">This phone is not paired with the scanner. Open the scanner\'s pairing window, then tap Retry and confirm the pairing.</string>
     <string name="conn_failed_other">The connection failed.</string>
-    <string name="update_app">The scanner speaks a different protocol version than this app. Please update the app.</string>
+    <string name="update_app">The scanner speaks a newer protocol version than this app. Please update the app.</string>
+    <string name="update_scanner">The scanner speaks an older protocol version than this app. Please update the scanner.</string>
+    <string name="not_answering">The scanner is connected but does not answer. Its test service may be running instead of the dLidar service. The app keeps asking.</string>
     <string name="values_stale">Last known values; not live.</string>
     <string name="action_retry">Retry</string>
     <string name="action_refresh">Refresh</string>
@@ -73,4 +76,6 @@
     <string name="label_imu_in">IMU samples in</string>
     <string name="label_imu_out">IMU samples out</string>
     <string name="label_lost_samples">Lost samples</string>
+    <string name="imu_mode_sensor">Sensor (normal)</string>
+    <string name="imu_mode_host_aligned">Host aligned (fallback)</string>
 </resources>

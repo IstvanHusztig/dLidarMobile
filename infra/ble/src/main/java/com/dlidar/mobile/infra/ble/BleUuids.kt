@@ -18,7 +18,6 @@ object BleUuids {
     /** Client Characteristic Configuration descriptor (Bluetooth SIG). */
     val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
-    const val ADVERTISED_NAME = "dLidar"
     const val REQUESTED_MTU = 247
     const val DEFAULT_MTU = 23
 }

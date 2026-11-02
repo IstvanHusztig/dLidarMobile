@@ -1,6 +1,7 @@
 package com.dlidar.mobile.data.scanner.session
 
 import com.dlidar.mobile.data.protocol.log.Logger
+import com.dlidar.mobile.data.protocol.session.CallFailure
 import com.dlidar.mobile.data.protocol.session.CallResult
 import com.dlidar.mobile.data.protocol.session.ProtocolSession
 import com.dlidar.mobile.data.scanner.CallRetry
@@ -12,11 +13,15 @@ import com.dlidar.mobile.data.scanner.command.HelloCommand
 import com.dlidar.mobile.data.scanner.command.InfoGetCommand
 import com.dlidar.mobile.domain.model.Compatibility
 import kotlinx.coroutines.delay
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * What happens on every link up: hello first, because its answer decides compatibility; then
  * status.get (through the refresher) and info.get together, each repeated until it succeeds.
- * After a protocol mismatch nothing more is sent.
+ * After a protocol mismatch nothing more is sent. While the scanner sends nothing that is a
+ * protocol message (its echo test service, for example), only hello is repeated, every
+ * [notAnsweringRetry] (app choice).
  */
 internal class SessionHandshake(
     private val session: ProtocolSession,
@@ -25,13 +30,20 @@ internal class SessionHandshake(
     /** Called once hello allows further requests; until then nobody else may send. */
     private val onReady: () -> Unit,
     private val logger: Logger,
+    private val notAnsweringRetry: Duration = NOT_ANSWERING_RETRY,
 ) {
     suspend fun run() {
-        val hello = session.call(HelloCommand)
+        var hello = session.call(HelloCommand)
+        while (hello.isTimeout() && !session.hasReceivedMessages) {
+            record(ScannerInput.CompatibilityResolved(Compatibility.NotAnswering))
+            logger.warn(TAG, "no protocol message on this link; asking hello again in $notAnsweringRetry")
+            delay(notAnsweringRetry)
+            hello = session.call(HelloCommand)
+        }
         val compatibility = CompatibilityChecker.check(hello)
         record(ScannerInput.CompatibilityResolved(compatibility))
-        if (compatibility is Compatibility.UpdateAppRequired) {
-            logger.warn(TAG, "scanner speaks protocol ${compatibility.serverProtocol}; not sending further requests")
+        if (!compatibility.allowsRequests) {
+            logger.warn(TAG, "no common protocol version ($compatibility); not sending further requests")
             return
         }
         if (hello is CallResult.Success) session.applyLimits(hello.value.maxRequestBytes, hello.value.maxMessageBytes)
@@ -54,7 +66,10 @@ internal class SessionHandshake(
         }
     }
 
-    private companion object {
-        const val TAG = "Scanner"
+    private fun CallResult<*>.isTimeout() = this is CallResult.Failure && failure == CallFailure.Timeout
+
+    companion object {
+        private const val TAG = "Scanner"
+        val NOT_ANSWERING_RETRY: Duration = 30.seconds
     }
 }

@@ -7,8 +7,10 @@ import com.dlidar.mobile.data.protocol.transport.ByteTransport
 import com.dlidar.mobile.data.protocol.transport.ConnectResult
 import com.dlidar.mobile.data.protocol.transport.DownReason
 import com.dlidar.mobile.data.protocol.transport.LinkState
+import com.dlidar.mobile.data.protocol.transport.WriteResult
 import com.dlidar.mobile.infra.ble.gatt.GattConnectOutcome
 import com.dlidar.mobile.infra.ble.gatt.GattConnection
+import com.dlidar.mobile.infra.ble.gatt.GattWrite
 import com.dlidar.mobile.testing.ByteTransportContract
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -27,7 +29,8 @@ import org.junit.Test
 internal class FakeGattConnection(
     var negotiatedMtu: Int? = 247,
     var hasService: Boolean = true,
-    var notificationsOk: Boolean = true,
+    var cccdWrite: GattWrite = GattWrite.Ok,
+    var writes: GattWrite = GattWrite.Ok,
     /** When set, requestMtu waits for it, so a test can act in the middle of setup. */
     var mtuGate: CompletableDeferred<Unit>? = null,
 ) : GattConnection {
@@ -45,12 +48,12 @@ internal class FakeGattConnection(
         mtuGate?.await()
         return negotiatedMtu
     }
-    override suspend fun enableTxNotifications(): Boolean = notificationsOk.also { steps += "notify" }
+    override suspend fun enableTxNotifications(): GattWrite = cccdWrite.also { steps += "notify" }
 
-    override suspend fun writeRx(piece: ByteArray, withResponse: Boolean): Boolean {
+    override suspend fun writeRx(piece: ByteArray, withResponse: Boolean): GattWrite {
         steps += "write"
-        written += piece
-        return true
+        if (writes == GattWrite.Ok) written += piece
+        return writes
     }
 
     override suspend fun close() {
@@ -110,9 +113,33 @@ class AndroidBleTransportTest {
 
     @Test
     fun `failing to enable notifications fails the setup`() = runTest {
-        val transport = transport(FakeGattConnection(notificationsOk = false), backgroundScope)
+        val transport = transport(FakeGattConnection(cccdWrite = GattWrite.Failed), backgroundScope)
         val result = transport.connect("AA") as ConnectResult.Failed
         assertTrue(result.reason is DownReason.SetupFailed)
+    }
+
+    @Test
+    fun `notifications refused for want of pairing fail the setup as not paired`() = runTest {
+        val gatt = FakeGattConnection(cccdWrite = GattWrite.NotPaired)
+        val transport = transport(gatt, backgroundScope)
+
+        assertEquals(ConnectResult.Failed(DownReason.NotPaired), transport.connect("AA"))
+        assertEquals(LinkState.Down(DownReason.NotPaired), transport.link.value)
+        assertTrue("close" in gatt.steps)
+    }
+
+    @Test
+    fun `a write refused for want of pairing ends the link as not paired`() = runTest {
+        val gatt = FakeGattConnection(writes = GattWrite.NotPaired)
+        val transport = transport(gatt, backgroundScope)
+        val connection = (transport.connect("AA") as ConnectResult.Connected).connection
+
+        assertEquals(WriteResult.Failed("not paired"), connection.write(byteArrayOf(1)))
+        runCurrent()
+
+        assertEquals(LinkState.Down(DownReason.NotPaired), transport.link.value)
+        assertEquals("close", gatt.steps.last())
+        assertEquals(WriteResult.Failed("not connected"), connection.write(byteArrayOf(1)))
     }
 
     @Test

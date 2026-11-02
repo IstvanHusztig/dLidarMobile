@@ -19,6 +19,8 @@ import com.dlidar.mobile.domain.model.Compatibility
 import com.dlidar.mobile.domain.model.ConnectionState
 import com.dlidar.mobile.domain.model.ScannerCandidate
 import com.dlidar.mobile.domain.model.ScannerSnapshot
+import com.dlidar.mobile.domain.model.Warning
+import com.dlidar.mobile.domain.model.WarningKind
 import com.dlidar.mobile.domain.port.Clock
 import com.dlidar.mobile.domain.port.ScannerRepository
 import com.dlidar.mobile.domain.result.DomainError
@@ -75,6 +77,12 @@ class ScannerRepositoryImpl(
      * run was cancelled before it started. Guarded by [lock].
      */
     private val unfinished = mutableSetOf<Job>()
+    /**
+     * Warnings the user dismissed, by kind and text, so a status.get that still lists them does
+     * not bring them back. A key is forgotten once the scanner's list no longer has it, or when
+     * a warning event raises it again. Guarded by [lock].
+     */
+    private val dismissed = mutableSetOf<Pair<WarningKind, String>>()
     /** Set only after hello allowed further requests. */
     @Volatile private var live: LiveSession? = null
 
@@ -84,6 +92,7 @@ class ScannerRepositoryImpl(
             previous.forEach { it.cancel() }
             val run = Run(candidate.id)
             current = run
+            if (state.value.target?.id != candidate.id) dismissed.clear()
             reduce(ScannerInput.TargetSelected(candidate))
             reduce(ScannerInput.ConnectionChanged(ConnectionState.Connecting(attempt = 1)))
             val job = scope.launch(start = CoroutineStart.LAZY) {
@@ -105,7 +114,7 @@ class ScannerRepositoryImpl(
     }
 
     override suspend fun refreshStatus(): Outcome<Unit> {
-        if (state.value.compatibility is Compatibility.UpdateAppRequired) {
+        if (!state.value.compatibility.allowsRequests) {
             return Outcome.Failed(DomainError.IncompatibleProtocol)
         }
         // Before hello has decided compatibility there is no live session, so nothing is sent.
@@ -117,7 +126,10 @@ class ScannerRepositoryImpl(
     }
 
     override fun dismissWarning(warningId: Long) {
-        synchronized(lock) { reduce(ScannerInput.WarningDismissed(warningId)) }
+        synchronized(lock) {
+            state.value.warnings.firstOrNull { it.id == warningId }?.let { dismissed += it.key }
+            reduce(ScannerInput.WarningDismissed(warningId))
+        }
     }
 
     /** Callers hold [lock]. */
@@ -140,11 +152,22 @@ class ScannerRepositoryImpl(
     private inner class Run(private val target: String) {
 
         fun record(input: ScannerInput) {
-            synchronized(lock) { if (current === this) reduce(input) }
+            synchronized(lock) {
+                if (current !== this) return
+                if (input is ScannerInput.WarningRaised) dismissed -= input.warning.key
+                reduce(input)
+            }
         }
 
         fun applyStatus(dto: StatusDto) {
-            record(ScannerInput.StatusLoaded(ProtocolMappers.status(dto), dto.freeBytes))
+            val now = clock.now()
+            val warnings = dto.warnings?.map { Warning(warningIds.incrementAndGet(), ProtocolMappers.warningKind(it.kind), it.text, now) }
+            val summary = dto.summary?.let { ProtocolMappers.summary(it, now) }
+            synchronized(lock) {
+                if (current !== this) return
+                if (warnings != null) dismissed.retainAll(warnings.map { it.key }.toSet())
+                reduce(ScannerInput.StatusLoaded(ProtocolMappers.status(dto), dto.freeBytes, warnings?.filterNot { it.key in dismissed }, summary))
+            }
         }
 
         suspend fun maintain() {
@@ -271,6 +294,7 @@ class ScannerRepositoryImpl(
         private fun failureReason(reason: DownReason): ConnectionState.Failed.Reason = when (reason) {
             DownReason.PermissionMissing -> ConnectionState.Failed.Reason.PermissionMissing
             DownReason.ServiceNotFound -> ConnectionState.Failed.Reason.NotADLidar
+            DownReason.NotPaired -> ConnectionState.Failed.Reason.NotPaired
             else -> ConnectionState.Failed.Reason.Other
         }
     }
@@ -278,5 +302,7 @@ class ScannerRepositoryImpl(
     private companion object {
         const val TAG = "Scanner"
         val DRAIN_TIMEOUT = 1.seconds
+
+        val Warning.key get() = kind to text
     }
 }

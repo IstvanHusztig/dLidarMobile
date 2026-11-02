@@ -55,7 +55,7 @@ fun StatusScreen(
                     if (onTrafficLog != null) {
                         TextButton(onClick = onTrafficLog) { Text(stringResource(R.string.action_traffic_log)) }
                     }
-                    if (state.isLive && !state.updateAppRequired) {
+                    if (state.isLive && !state.updateAppRequired && !state.updateScannerRequired && !state.notAnswering) {
                         TextButton(onClick = { onAction(StatusAction.Refresh) }) { Text(stringResource(R.string.action_refresh)) }
                     }
                     TextButton(onClick = { onAction(StatusAction.Disconnect) }) { Text(stringResource(R.string.action_disconnect)) }
@@ -70,6 +70,8 @@ fun StatusScreen(
         ) {
             item { ConnectionBanner(state, onAction) }
             if (state.updateAppRequired) item { Notice(stringResource(R.string.update_app), MaterialTheme.colorScheme.errorContainer) }
+            if (state.updateScannerRequired) item { Notice(stringResource(R.string.update_scanner), MaterialTheme.colorScheme.errorContainer) }
+            if (state.notAnswering) item { Notice(stringResource(R.string.not_answering), MaterialTheme.colorScheme.errorContainer) }
             if (state.refreshError != null) item { Notice(stringResource(R.string.refresh_failed), MaterialTheme.colorScheme.errorContainer) }
             item { RecordingCard(state.status, state.freeBytes, state.isLive) }
             if (state.warnings.isNotEmpty()) {
@@ -96,6 +98,7 @@ private fun ConnectionBanner(state: StatusUiState, onAction: (StatusAction) -> U
         is ConnectionState.Failed -> when (connection.reason) {
             ConnectionState.Failed.Reason.PermissionMissing -> stringResource(R.string.conn_failed_permission)
             ConnectionState.Failed.Reason.NotADLidar -> stringResource(R.string.conn_failed_not_dlidar)
+            ConnectionState.Failed.Reason.NotPaired -> stringResource(R.string.conn_failed_not_paired)
             ConnectionState.Failed.Reason.Other -> stringResource(R.string.conn_failed_other)
         }
     }
@@ -157,7 +160,7 @@ private fun WarningCard(warning: Warning, onAction: (StatusAction) -> Unit) {
 @Composable
 private fun SummaryCard(summary: RecordingSummary) {
     InfoCard(stringResource(R.string.section_summary)) {
-        Field(stringResource(R.string.label_imu_mode), summary.imuMode)
+        Field(stringResource(R.string.label_imu_mode), imuModeLabel(summary.imuMode))
         Field(stringResource(R.string.label_decision), summary.decision)
         Field(stringResource(R.string.label_imu_in), Formatters.count(summary.imuIn))
         Field(stringResource(R.string.label_imu_out), Formatters.count(summary.imuOut))
@@ -204,6 +207,13 @@ private fun Notice(text: String, color: Color) {
     Card(colors = CardDefaults.cardColors(containerColor = color), modifier = Modifier.fillMaxWidth()) {
         Text(text, modifier = Modifier.padding(16.dp))
     }
+}
+
+@Composable
+private fun imuModeLabel(raw: String): String = when (raw) {
+    "sensor" -> stringResource(R.string.imu_mode_sensor)
+    "host_aligned" -> stringResource(R.string.imu_mode_host_aligned)
+    else -> raw
 }
 
 @Composable

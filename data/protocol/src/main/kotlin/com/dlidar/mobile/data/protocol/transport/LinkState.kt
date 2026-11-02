@@ -17,6 +17,11 @@ sealed interface DownReason {
     data object ServiceNotFound : DownReason
     /** Connected, but a setup step (MTU, notifications) failed. */
     data class SetupFailed(val step: String) : DownReason
+    /**
+     * The scanner needs an encrypted link and pairing did not succeed, for example because its
+     * pairing window was closed.
+     */
+    data object NotPaired : DownReason
     data object BluetoothOff : DownReason
     data object PermissionMissing : DownReason
 }

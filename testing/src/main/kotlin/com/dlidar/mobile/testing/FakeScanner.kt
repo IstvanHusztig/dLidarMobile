@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -28,7 +29,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Plays the scanner's side of the link, following protocol v1: it reassembles written pieces,
- * answers hello, status.get and info.get, numbers events from 1 per connection, and splits
+ * answers hello, status.get (with the recording's warnings and the last summary) and info.get,
+ * numbers events from 1 per connection, and splits
  * everything it sends into notifications of at most MTU-3 bytes, each message starting in a
  * fresh notification.
  *
@@ -74,11 +76,17 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
     /** False turns the fake into a plain byte peer that only records [writtenPieces]. */
     var protocolEnabled = true
 
+    /** True answers every line like the scanner's echo test service: `echo <line>`. */
+    var echoMode = false
+
     /** Every piece written, in order, across connections. */
     val writtenPieces: MutableList<ByteArray> = CopyOnWriteArrayList()
 
     private var connection: FakeConnection? = null
     private var seq = 0L
+    /** The current or last recording's warnings, as status.get reports them. */
+    private val recentWarnings = ArrayDeque<JsonObject>()
+    private var lastSummary: JsonObject? = null
 
     val commandNames: List<String> get() = requests.map { it["cmd"]!!.jsonPrimitive.content }
 
@@ -113,6 +121,8 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
 
     /** Changes the recording status and announces it with a state event. */
     fun changeStatus(newStatus: FakeStatus) {
+        // Spec: the warning list is emptied when a recording starts.
+        if (newStatus.state == "preparing" && status.state != "preparing") recentWarnings.clear()
         status = newStatus
         emitEvent("state", newStatus.toStateEvent())
     }
@@ -126,20 +136,25 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
     }
 
     fun warning(kind: String, text: String) {
-        emitEvent("warning", buildJsonObject {
+        val warning = buildJsonObject {
             put("kind", kind)
             put("text", text)
-        })
+        }
+        recentWarnings += warning
+        while (recentWarnings.size > MAX_STATUS_WARNINGS) recentWarnings.removeFirst()
+        emitEvent("warning", warning)
     }
 
     fun summary(imuMode: String = "fused", decision: String = "keep", imuIn: Long = 1000, imuOut: Long = 998, lostSamples: Long = 2) {
-        emitEvent("summary", buildJsonObject {
+        val summary = buildJsonObject {
             put("imu_mode", imuMode)
             put("decision", decision)
             put("imu_in", imuIn)
             put("imu_out", imuOut)
             put("lost_samples", lostSamples)
-        })
+        }
+        lastSummary = summary
+        emitEvent("summary", summary)
     }
 
     /**
@@ -147,6 +162,8 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
      * [extra] adds unknown top-level fields.
      */
     fun emitEvent(name: String, data: JsonObject, skip: Int = 0, dropped: Long? = null, extra: Map<String, JsonElement> = emptyMap()) {
+        // Spec: with no phone connected nothing is sent or counted.
+        if (connection == null) return
         seq += 1 + skip
         sendJson(buildJsonObject {
             put("event", name)
@@ -213,11 +230,18 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
         scriptedErrors[cmd]?.removeFirstOrNull()?.let { code -> return respondError(id, code, code) }
         when (cmd) {
             "hello" -> hello?.let { respond(id, it) } ?: respondError(id, "unknown_command", "unknown command")
-            "status.get" -> respond(id, status.toResult())
+            "status.get" -> respond(id, statusResult())
             "info.get" -> respond(id, info)
             else -> respondError(id, "unknown_command", "unknown command")
         }
     }
+
+    private fun statusResult() = JsonObject(
+        status.toResult() + mapOf(
+            "warnings" to JsonArray(recentWarnings.toList()),
+            "summary" to (lastSummary ?: JsonNull),
+        ),
+    )
 
     private fun respond(id: JsonElement, result: JsonObject) = sendJson(buildJsonObject {
         put("id", id)
@@ -236,7 +260,8 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
 
     private inner class FakeConnection(override val maxWritePiece: Int) : ByteConnection {
         private val channel = Channel<ByteArray>(Channel.UNLIMITED)
-        private val decoder = FrameDecoder(maxMessageBytes = 4096)
+        /** Spec: a request is at most 4096 bytes including its newline. */
+        private val decoder = FrameDecoder(maxMessageBytes = 4095)
         override val incoming: Flow<ByteArray> = channel.receiveAsFlow()
 
         override suspend fun write(piece: ByteArray): WriteResult {
@@ -244,6 +269,13 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
             writtenPieces += piece.copyOf()
             if (piece.size > maxWritePiece) violations += "piece of ${piece.size} bytes, limit $maxWritePiece"
             if (!protocolEnabled) return WriteResult.Ok
+            if (echoMode) {
+                decoder.feed(piece).filterIsInstance<DecodedFrame.Line>().forEach { line ->
+                    runCatching { Json.parseToJsonElement(line.text).jsonObject }.getOrNull()?.let { requests += it }
+                    sendLine("echo ${line.text}")
+                }
+                return WriteResult.Ok
+            }
             for (frame in decoder.feed(piece)) {
                 when (frame) {
                     is DecodedFrame.Line -> onRequestLine(frame.text)
@@ -266,6 +298,9 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
     }
 
     companion object {
+        /** Spec: status.get lists the 16 newest warnings. */
+        const val MAX_STATUS_WARNINGS = 16
+
         fun defaultHello(protocol: Int = 1): JsonObject = buildJsonObject {
             put("protocol", protocol)
             put("server", "dLidar")

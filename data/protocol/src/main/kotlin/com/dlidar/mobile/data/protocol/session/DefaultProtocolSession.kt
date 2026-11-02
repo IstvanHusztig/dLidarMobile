@@ -1,9 +1,12 @@
 package com.dlidar.mobile.data.protocol.session
 
 import com.dlidar.mobile.data.protocol.ProtocolLimits
+import com.dlidar.mobile.data.protocol.codec.ErrorCode
 import com.dlidar.mobile.data.protocol.codec.Inbound
 import com.dlidar.mobile.data.protocol.codec.MessageCodec
 import com.dlidar.mobile.data.protocol.codec.ProtocolEvent
+import com.dlidar.mobile.data.protocol.codec.RemoteError
+import com.dlidar.mobile.data.protocol.codec.ResponseBody
 import com.dlidar.mobile.data.protocol.command.ProtocolCommand
 import com.dlidar.mobile.data.protocol.framing.DecodedFrame
 import com.dlidar.mobile.data.protocol.framing.FrameDecoder
@@ -164,10 +167,7 @@ class DefaultProtocolSession(
         when (message) {
             is Inbound.Response -> onResponse(message)
             is Inbound.Event -> onEvent(message.event)
-            is Inbound.UnsolicitedError -> {
-                logger.warn(TAG, "unsolicited error ${message.error.code.wire}: ${message.error.message}")
-                listener.onSignal(SessionSignal.UnsolicitedError(message.error))
-            }
+            is Inbound.UnsolicitedError -> onErrorWithoutId(message.error)
             is Inbound.Unparsed -> logger.debug(TAG) { "ignored line (${message.reason}): $line" }
         }
     }
@@ -181,6 +181,24 @@ class DefaultProtocolSession(
         if (!taken.inOrder) logger.warn(TAG, "response for id ${response.id} came before an older request's response")
         logger.debug(TAG) { "<- response ${response.id}" }
         taken.call.deliver(response.body)
+    }
+
+    /**
+     * Spec: too_large, and bad_request for a request whose id could not be read, take that
+     * request's place in the response order, so they answer the oldest pending request. Other
+     * errors without id (too_many_clients) belong to no request.
+     */
+    private fun onErrorWithoutId(error: RemoteError) {
+        if (error.code == ErrorCode.TooLarge || error.code == ErrorCode.BadRequest) {
+            val oldest = dispatcher.takeOldest()
+            if (oldest != null) {
+                logger.warn(TAG, "${error.code.wire} without id answers ${oldest.command.name} (id ${oldest.id})")
+                oldest.deliver(ResponseBody.Err(error))
+                return
+            }
+        }
+        logger.warn(TAG, "unsolicited error ${error.code.wire}: ${error.message}")
+        listener.onSignal(SessionSignal.UnsolicitedError(error))
     }
 
     private fun onEvent(event: ProtocolEvent) {

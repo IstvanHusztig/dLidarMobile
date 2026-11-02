@@ -21,10 +21,13 @@ picks a network.
 2. **List.** `NetworkListMerger` drops empty or hidden SSIDs and merges entries with the same
    SSID, keeping the strongest RSSI. The security type shown comes from the strongest entry.
 3. **Security.** `SecurityTypeResolver` reads `ScanResult.capabilities`: `SAE` without `PSK` →
-   `wpa3-sae`, `PSK` → `wpa2-psk` (a transition network that also offers SAE stays `wpa2-psk`
-   until open question 34 is answered), no `WPA`/`RSN`/`WEP` → `open`. Anything else (EAP, WEP,
-   OWE) → `Unsupported`, shown but not selectable.
-4. **Password.** It is entered as a `CharArray` and kept only in memory. It is cleared after
+   `wpa3-sae`, `PSK` → `wpa2-psk` (a transition network that also offers SAE is sent as
+   `wpa2-psk`, as the scanner side decided), no `WPA`/`RSN`/`WEP` → `open`. Anything else (EAP,
+   WEP, OWE) → `Unsupported`, shown but not selectable. Hidden SSIDs and SSIDs that are not
+   UTF-8 are out of scope too.
+4. **Password.** It must be 8 to 63 printable ASCII characters or 64 hex digits (the scanner
+   answers anything else with `bad_request`), so the app checks it before sending. It is
+   entered as a `CharArray` and kept only in memory. It is cleared after
    the request is sent and never logged: `sensitiveArgs` redacts it in the protocol log, and
    the domain types hide it in `toString`. It is never written to storage; a later "remember"
    feature would need the Android Keystore.
@@ -34,7 +37,9 @@ picks a network.
    shows "result unknown, check Wi-Fi status".
 6. **Result.** connected → show `wifi.status` (SSID and IP address). Wrong password → ask
    again. Not found → "The scanner may be out of range of this network." Timeout → offer a
-   retry.
+   retry. Failed (`failed`, any other error) → offer a retry.
+   The wire values are `connected`, `wrong_password`, `not_found`, `timeout` and `failed`
+   (open question 34).
 
 ## Tests
 

@@ -17,18 +17,27 @@ internal object CompatibilityChecker {
         is CallResult.Success -> when (val protocol = hello.value.protocol) {
             null -> Compatibility.Unknown
             ProtocolLimits.PROTOCOL_VERSION -> Compatibility.Compatible
-            else -> Compatibility.UpdateAppRequired(protocol)
+            else -> mismatch(protocol)
         }
         is CallResult.Failure -> {
             val failure = hello.failure
             if (failure is CallFailure.Remote && failure.error.code == ErrorCode.UnsupportedVersion) {
+                // Spec: "supported" lists every version the scanner speaks.
                 val supported = (failure.error.details["supported"] as? JsonArray)
                     ?.mapNotNull { (it as? JsonPrimitive)?.intOrNull }
-                Compatibility.UpdateAppRequired(supported?.maxOrNull())
+                mismatch(supported?.maxOrNull())
             } else {
                 // unknown_command (an older scanner), timeouts and the rest: carry on.
                 Compatibility.Unknown
             }
         }
     }
+
+    /**
+     * Spec: an app above the scanner's newest version means "update the scanner"; otherwise
+     * (below its oldest, or nothing known) "update the app".
+     */
+    private fun mismatch(serverMax: Int?): Compatibility =
+        if (serverMax != null && ProtocolLimits.PROTOCOL_VERSION > serverMax) Compatibility.UpdateScannerRequired(serverMax)
+        else Compatibility.UpdateAppRequired(serverMax)
 }
