@@ -36,6 +36,7 @@ Source dependencies point **inward only**. Inner layers know nothing about outer
 | `:infra:wifi` *(later)* | Android lib | `WifiNetworkScanner` impl, scan throttle | `:domain` |
 | `:presentation` | Android lib | Compose screens, ViewModels, UI models | `:domain` **only** |
 | `:debug:linktest` | Android lib, debug builds only | Raw-line console for the scanner's echo test service | `:data:protocol` |
+| `:debug:traffic` | Android lib, debug builds only | In-memory log of protocol messages and link changes, with a screen | `:data:protocol` |
 | `:app` | Android app | `Application`, manual DI composition root, navigation, permissions wiring | everything |
 | `:testing` | Kotlin/JVM | `FakeScanner : ByteTransport`, `ByteTransportContract` | `:data:protocol`, `:domain` |
 
@@ -246,6 +247,11 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
 - The echo test service (`anything`, `info`, `flood N SIZE`) does not speak protocol v1. Its
   console lives in `:debug:linktest`, which uses `ByteTransport`, `FrameSplitter` and
   `FrameDecoder` directly and is left out of release builds.
+- The protocol traffic log lives in `:debug:traffic`. `DefaultProtocolSession` reports every
+  complete message to a `TrafficListener` port (sent lines with sensitive args already
+  redacted, received lines, dropped messages); `TrafficLog` keeps the last 1000 in memory,
+  together with the link changes. `StatusScreen` shows a **Log** button only when `:app`
+  passes a handler, which it does in debug builds.
 
 ---
 
@@ -255,8 +261,9 @@ Manual dependency injection in `AppContainer`, with no DI framework. This is the
 that creates concrete classes and connects them to their ports. `AppRoot` does the navigation
 and the Android-only work (permission requests, system settings). The connection outlives the
 Activity, so after recreation the app returns to the status screen instead of starting a new
-search. `DebugTools` has a debug
-version (the link test) and a release version (nothing), selected by source set.
+search. `DebugTools` has a debug version (the link test and the traffic log, whose
+`TrafficListener` goes into `DefaultProtocolSessionFactory`) and a release version
+(`TrafficListener.None` and nothing else), selected by source set.
 
 ---
 
@@ -327,6 +334,7 @@ Send:
 | `:testing` / `:infra:ble` | `ByteTransportContract` runs against `FakeScanner` and against `AndroidBleTransport` with a `FakeGattConnection`; the BLE setup order and its failures are tested on the JVM. `AndroidGattConnection` itself needs a device. |
 | `:presentation` | `StatusViewModel` on the real repository and protocol stack against `FakeScanner`; `ConnectViewModel` with a fake finder; `StatusScreen` with Compose UI tests under Robolectric; `Formatters`. |
 | `:debug:linktest` | `FloodMeter`. |
+| `:debug:traffic` | `TrafficLog` (order, capacity, link changes, export limit). |
 
 Every test runs on the JVM without a device. `FakeScanner` also records protocol violations by
 the app (pieces over MTU-3, missing `"v":1`, undocumented args), and the repository tests

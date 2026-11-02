@@ -41,12 +41,20 @@ import java.time.Instant
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatusScreen(state: StatusUiState, onAction: (StatusAction) -> Unit) {
+fun StatusScreen(
+    state: StatusUiState,
+    /** Debug builds only: opens the protocol traffic log. */
+    onTrafficLog: (() -> Unit)? = null,
+    onAction: (StatusAction) -> Unit,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(state.scannerName ?: stringResource(R.string.status_title_fallback)) },
                 actions = {
+                    if (onTrafficLog != null) {
+                        TextButton(onClick = onTrafficLog) { Text(stringResource(R.string.action_traffic_log)) }
+                    }
                     if (state.isLive && !state.updateAppRequired) {
                         TextButton(onClick = { onAction(StatusAction.Refresh) }) { Text(stringResource(R.string.action_refresh)) }
                     }

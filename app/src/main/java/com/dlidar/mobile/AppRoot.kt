@@ -30,13 +30,26 @@ import com.dlidar.mobile.presentation.status.StatusViewModel
 private sealed interface Screen {
     data object Connect : Screen
     data object Status : Screen
+    data object TrafficLog : Screen
     data class LinkTest(val candidate: ScannerCandidate) : Screen
 }
 
 /** The link test is not restored after recreation; its connection is gone by then. */
 private val ScreenSaver = Saver<Screen, String>(
-    save = { if (it == Screen.Status) "status" else "connect" },
-    restore = { if (it == "status") Screen.Status else Screen.Connect },
+    save = {
+        when (it) {
+            Screen.Status -> "status"
+            Screen.TrafficLog -> "traffic"
+            else -> "connect"
+        }
+    },
+    restore = {
+        when (it) {
+            "status" -> Screen.Status
+            "traffic" -> Screen.TrafficLog
+            else -> Screen.Connect
+        }
+    },
 )
 
 /** Navigation and the Android-only work the screens cannot do: permissions and system settings. */
@@ -62,7 +75,15 @@ fun AppRoot(container: AppContainer) {
                 container.disconnectScanner()
                 screen = Screen.Connect
             }
-            StatusRoute(container, onDisconnected = { screen = Screen.Connect })
+            StatusRoute(
+                container,
+                onDisconnected = { screen = Screen.Connect },
+                onTrafficLog = if (DebugTools.trafficLogAvailable) ({ screen = Screen.TrafficLog }) else null,
+            )
+        }
+        Screen.TrafficLog -> {
+            BackHandler { screen = Screen.Status }
+            DebugTools.TrafficLog(onBack = { screen = Screen.Status })
         }
         is Screen.LinkTest -> {
             BackHandler { screen = Screen.Connect }
@@ -109,7 +130,7 @@ private fun ConnectRoute(container: AppContainer, onConnected: () -> Unit, onLin
 }
 
 @Composable
-private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit) {
+private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onTrafficLog: (() -> Unit)?) {
     val viewModel = viewModel {
         StatusViewModel(
             container.observeScanner,
@@ -120,7 +141,7 @@ private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit) {
         )
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
-    StatusScreen(state) { action ->
+    StatusScreen(state, onTrafficLog = onTrafficLog) { action ->
         viewModel.onAction(action)
         if (action is StatusAction.Disconnect) onDisconnected()
     }

@@ -40,6 +40,7 @@ dependencies {
     implementation(project(":infra:ble"))
     implementation(project(":presentation"))
     debugImplementation(project(":debug:linktest"))
+    debugImplementation(project(":debug:traffic"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

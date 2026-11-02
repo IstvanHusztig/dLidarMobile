@@ -41,6 +41,7 @@ class DefaultProtocolSession(
     limits: ProtocolLimits = ProtocolLimits(),
     private val codec: MessageCodec = MessageCodec(),
     private val logger: Logger = Logger.None,
+    private val traffic: TrafficListener = TrafficListener.None,
 ) : ProtocolSession {
 
     private val job = SupervisorJob(parentScope.coroutineContext[Job])
@@ -115,7 +116,9 @@ class DefaultProtocolSession(
                 return@withLock Sent.Failed(CallFailure.TooLarge(split.bytes))
             }
         }
-        logger.debug(TAG) { "-> " + codec.encodeRequest(id, command.name, redact(command.args(), command.sensitiveArgs)) }
+        val shown = codec.encodeRequest(id, command.name, redact(command.args(), command.sensitiveArgs))
+        logger.debug(TAG) { "-> $shown" }
+        traffic.onTraffic(Traffic.Sent(shown))
         // Once the first piece is out, the rest must follow even if the caller is cancelled;
         // otherwise the scanner keeps a partial line and the next request is glued onto it.
         withContext(NonCancellable) { writePieces(id, pieces) }
@@ -141,10 +144,18 @@ class DefaultProtocolSession(
 
     private fun onFrame(frame: DecodedFrame) {
         when (frame) {
-            is DecodedFrame.Line -> onLine(frame.text)
-            is DecodedFrame.Oversized -> logger.warn(TAG, "dropped a message of ${frame.bytes} bytes, over the limit")
-            is DecodedFrame.Malformed -> logger.warn(TAG, "dropped a message of ${frame.bytes} bytes that is not UTF-8")
+            is DecodedFrame.Line -> {
+                traffic.onTraffic(Traffic.Received(frame.text))
+                onLine(frame.text)
+            }
+            is DecodedFrame.Oversized -> dropped("a message of ${frame.bytes} bytes, over the limit")
+            is DecodedFrame.Malformed -> dropped("a message of ${frame.bytes} bytes that is not UTF-8")
         }
+    }
+
+    private fun dropped(what: String) {
+        logger.warn(TAG, "dropped $what")
+        traffic.onTraffic(Traffic.Dropped(what))
     }
 
     private fun onLine(line: String) {
@@ -200,7 +211,8 @@ class DefaultProtocolSession(
 class DefaultProtocolSessionFactory(
     private val limits: ProtocolLimits = ProtocolLimits(),
     private val logger: Logger = Logger.None,
+    private val traffic: TrafficListener = TrafficListener.None,
 ) : ProtocolSessionFactory {
     override fun create(connection: ByteConnection, listener: SessionListener, scope: CoroutineScope): ProtocolSession =
-        DefaultProtocolSession(connection, listener, scope, limits, MessageCodec(), logger)
+        DefaultProtocolSession(connection, listener, scope, limits, MessageCodec(), logger, traffic)
 }

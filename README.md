@@ -46,6 +46,14 @@ comes back as `echo text`, `info` returns the scanner's state), and **flood** ru
 `flood N SIZE` and reports lines received, missing, out of order, and the throughput. The link
 test uses the BLE link directly, so it runs while the status screen is disconnected.
 
+### Traffic log (debug builds)
+
+The status screen has a **Log** button in debug builds. It lists every protocol message sent
+(`->`) and received (`<-`), dropped messages (`!!`) and link changes (`--`), newest at the
+bottom. **Share** sends the log as text (the newest 100,000 characters), for example to report
+what the real scanner answered. Passwords are redacted before they reach the log, and the log
+is kept in memory only.
+
 ## Modules
 
 | Module | What it holds |
@@ -56,6 +64,7 @@ test uses the BLE link directly, so it runs while the status screen is disconnec
 | `infra/ble` | The Android BLE transport, scanning, permissions |
 | `presentation` | Compose screens and ViewModels |
 | `debug/linktest` | The echo-service link test (debug builds only) |
+| `debug/traffic` | The protocol traffic log (debug builds only) |
 | `testing` | `FakeScanner`, which plays the scanner's side, and the transport contract tests |
 | `app` | Composition root and navigation |
 

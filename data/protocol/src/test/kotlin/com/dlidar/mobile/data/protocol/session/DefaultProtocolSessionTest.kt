@@ -307,4 +307,37 @@ class DefaultProtocolSessionTest {
         connection.failWrites = true
         assertEquals(CallResult.Failure(CallFailure.WriteFailed("gatt error")), session.call(ValueCommand))
     }
+
+    private object SecretCommand : ProtocolCommand<Unit> {
+        override val name = "test.secret"
+        override val sensitiveArgs = setOf("psk")
+        override fun args() = buildJsonObject {
+            put("ssid", "home")
+            put("psk", "hunter22")
+        }
+        override fun decode(result: JsonObject) = Unit
+    }
+
+    @Test
+    fun `the traffic listener sees sent lines redacted, received lines and dropped messages`() = runTest {
+        val seen = mutableListOf<Traffic>()
+        val session = DefaultProtocolSession(
+            connection, { signals += it }, backgroundScope, ProtocolLimits(maxMessageBytes = 40),
+            traffic = { seen += it },
+        ).also { it.start() }
+        val call = async { session.call(SecretCommand) }
+        runCurrent()
+        val id = connection.lastId()
+        connection.send("""{"event":"progress","seq":1,"data":{"note":"${"x".repeat(60)}"}}""")
+        connection.send("""{"id":$id,"ok":true,"result":{}}""")
+        call.await()
+
+        val sent = seen[0] as Traffic.Sent
+        assertTrue(sent.line.contains("\"ssid\":\"home\""))
+        assertFalse(sent.line.contains("hunter22"))
+        assertTrue(connection.requests().single().toString().contains("hunter22"))
+        assertTrue(seen[1] is Traffic.Dropped)
+        assertEquals(Traffic.Received("""{"id":$id,"ok":true,"result":{}}"""), seen[2])
+        assertEquals(3, seen.size)
+    }
 }

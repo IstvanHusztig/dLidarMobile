@@ -1,5 +1,8 @@
 package com.dlidar.mobile.presentation
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -86,5 +89,17 @@ class StatusScreenTest {
         compose.setContent { StatusScreen(live, onAction = { actions += it }) }
         compose.onNodeWithText("Dismiss").performClick()
         assertEquals(listOf<StatusAction>(StatusAction.DismissWarning(7)), actions)
+    }
+
+    @Test
+    fun `the traffic log button shows only when the app offers the log`() {
+        var opened = 0
+        var offered by mutableStateOf(false)
+        compose.setContent { StatusScreen(live, onTrafficLog = if (offered) ({ opened++ }) else null, onAction = {}) }
+        compose.onNodeWithText("Log").assertDoesNotExist()
+
+        offered = true
+        compose.onNodeWithText("Log").performClick()
+        assertEquals(1, opened)
     }
 }

@@ -23,6 +23,7 @@ include(
     ":infra:ble",
     ":presentation",
     ":debug:linktest",
+    ":debug:traffic",
     ":testing",
     ":app",
 )

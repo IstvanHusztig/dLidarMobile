@@ -32,7 +32,7 @@ class AppContainer(context: Context) {
 
     private val repository: ScannerRepository = ScannerRepositoryImpl(
         transport = transport,
-        sessionFactory = DefaultProtocolSessionFactory(logger = logger),
+        sessionFactory = DefaultProtocolSessionFactory(logger = logger, traffic = DebugTools.traffic),
         scope = appScope,
         clock = Clock { Instant.now() },
         reconnectPolicy = ReconnectPolicy(),
@@ -45,4 +45,8 @@ class AppContainer(context: Context) {
     val observeScanner = ObserveScanner(repository)
     val refreshStatus = RefreshStatus(repository)
     val dismissWarning = DismissWarning(repository)
+
+    init {
+        DebugTools.start(this)
+    }
 }
