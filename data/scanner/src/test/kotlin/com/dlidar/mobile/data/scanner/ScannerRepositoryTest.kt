@@ -274,6 +274,28 @@ class ScannerRepositoryTest {
     }
 
     @Test
+    fun `connect then disconnect before the new run starts leaves no run behind`() = runTest {
+        val repository = connected()
+        repository.connect(ScannerCandidate(id = "CC:DD", name = "dLidar", rssi = -60))
+        repository.disconnect()
+        runCurrent()
+        advanceTimeBy(60_000)
+
+        assertEquals(ConnectionState.Disconnected, repository.snapshot.value.connection)
+        assertFalse(fake.isConnected)
+        assertEquals(1, fake.connectAttempts)
+    }
+
+    @Test
+    fun `refresh before hello is answered sends nothing`() = runTest {
+        fake.silentCommands += "hello"
+        val repository = connected()
+
+        assertEquals(Outcome.Failed(DomainError.NotConnected), repository.refreshStatus())
+        assertEquals(listOf("hello"), fake.commandNames)
+    }
+
+    @Test
     fun `three quick connects end with one live connection`() = runTest {
         val repository = repository()
         repeat(3) { repository.connect(candidate) }

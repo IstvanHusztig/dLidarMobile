@@ -29,7 +29,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -69,21 +69,29 @@ class ScannerRepositoryImpl(
     private val lock = Any()
     /** The run allowed to change the snapshot; null after disconnect(). Guarded by [lock]. */
     private var current: Run? = null
-    /** The last run launched, current or not, so the next one waits for its cleanup. Guarded by [lock]. */
-    private var lastJob: Job? = null
+    /**
+     * Run jobs that have not finished, current or not. Every new run cancels them at once and
+     * waits for all of them, so no old run's cleanup can close the new run's link, even when a
+     * run was cancelled before it started. Guarded by [lock].
+     */
+    private val unfinished = mutableSetOf<Job>()
+    /** Set only after hello allowed further requests. */
     @Volatile private var live: LiveSession? = null
 
     override fun connect(candidate: ScannerCandidate) {
         synchronized(lock) {
-            val previous = lastJob
+            val previous = unfinished.toList()
+            previous.forEach { it.cancel() }
             val run = Run(candidate.id)
             current = run
             reduce(ScannerInput.TargetSelected(candidate))
+            reduce(ScannerInput.ConnectionChanged(ConnectionState.Connecting(attempt = 1)))
             val job = scope.launch(start = CoroutineStart.LAZY) {
-                previous?.cancelAndJoin()
+                previous.joinAll()
                 run.maintain()
             }
-            lastJob = job
+            unfinished += job
+            job.invokeOnCompletion { synchronized(lock) { unfinished -= job } }
             job.start()
         }
     }
@@ -91,7 +99,7 @@ class ScannerRepositoryImpl(
     override fun disconnect() {
         synchronized(lock) {
             current = null
-            lastJob?.cancel()
+            unfinished.toList().forEach { it.cancel() }
             reduce(ScannerInput.ConnectionChanged(ConnectionState.Disconnected))
         }
     }
@@ -100,6 +108,7 @@ class ScannerRepositoryImpl(
         if (state.value.compatibility is Compatibility.UpdateAppRequired) {
             return Outcome.Failed(DomainError.IncompatibleProtocol)
         }
+        // Before hello has decided compatibility there is no live session, so nothing is sent.
         val active = live ?: return Outcome.Failed(DomainError.NotConnected)
         return when (val result = active.session.call(StatusGetCommand, active.run::applyStatus)) {
             is CallResult.Success -> Outcome.Ok(Unit)
@@ -143,10 +152,9 @@ class ScannerRepositoryImpl(
             var waitingForBluetooth = false
             try {
                 while (true) {
-                    if (!waitingForBluetooth) {
-                        record(ScannerInput.ConnectionChanged(ConnectionState.Connecting(attempt = failures + 1)))
-                    }
-                    val reason = when (val result = transport.connect(target)) {
+                    val connecting = ConnectionState.Connecting(attempt = failures + 1)
+                    if (!waitingForBluetooth) record(ScannerInput.ConnectionChanged(connecting))
+                    val reason = when (val result = connectOnce(connecting, waitingForBluetooth)) {
                         is ConnectResult.Failed -> result.reason
                         is ConnectResult.Connected -> {
                             waitingForBluetooth = false
@@ -157,6 +165,10 @@ class ScannerRepositoryImpl(
                                 }
                                 is SessionEnd.LinkDown -> {
                                     if (end.healthy) failures = 0
+                                    // A session can end with its link still up (a broken stream):
+                                    // release the scanner during the backoff.
+                                    val link = transport.link.value
+                                    if (link is LinkState.Up && link.connection === result.connection) transport.disconnect()
                                     end.reason
                                 }
                             }
@@ -184,6 +196,22 @@ class ScannerRepositoryImpl(
             }
         }
 
+        /**
+         * One connect attempt. While the screen says Bluetooth is off, it switches to [connecting]
+         * as soon as the transport really starts connecting.
+         */
+        private suspend fun connectOnce(connecting: ConnectionState, waitingForBluetooth: Boolean): ConnectResult = coroutineScope {
+            val watcher = if (waitingForBluetooth) {
+                launch(start = CoroutineStart.UNDISPATCHED) {
+                    transport.link.first { it is LinkState.Connecting }
+                    record(ScannerInput.ConnectionChanged(connecting))
+                }
+            } else {
+                null
+            }
+            transport.connect(target).also { watcher?.cancel() }
+        }
+
         private suspend fun runSession(connection: ByteConnection): SessionEnd = coroutineScope {
             val stop = CompletableDeferred<SessionStop>()
             lateinit var session: ProtocolSession
@@ -202,8 +230,8 @@ class ScannerRepositoryImpl(
                 record(ScannerInput.CompatibilityResolved(Compatibility.Unknown))
                 record(ScannerInput.ConnectionChanged(ConnectionState.Connected))
                 session.start()
-                synchronized(lock) { if (current === this@Run) live = LiveSession(this@Run, session) }
-                launch { SessionHandshake(session, refresher, ::record, logger).run() }
+                val goLive: () -> Unit = { synchronized(lock) { if (current === this@Run) live = LiveSession(this@Run, session) } }
+                launch { SessionHandshake(session, refresher, ::record, goLive, logger).run() }
 
                 val linkDown = async {
                     transport.link.first { !(it is LinkState.Up && it.connection === connection) }
@@ -241,7 +269,6 @@ class ScannerRepositoryImpl(
         }
 
         private fun failureReason(reason: DownReason): ConnectionState.Failed.Reason = when (reason) {
-            DownReason.BluetoothOff -> ConnectionState.Failed.Reason.BluetoothOff
             DownReason.PermissionMissing -> ConnectionState.Failed.Reason.PermissionMissing
             DownReason.ServiceNotFound -> ConnectionState.Failed.Reason.NotADLidar
             else -> ConnectionState.Failed.Reason.Other

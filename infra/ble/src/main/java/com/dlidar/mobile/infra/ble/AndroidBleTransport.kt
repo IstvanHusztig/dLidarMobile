@@ -14,7 +14,6 @@ import com.dlidar.mobile.infra.ble.gatt.BluetoothAvailability
 import com.dlidar.mobile.infra.ble.gatt.GattConnectOutcome
 import com.dlidar.mobile.infra.ble.gatt.GattConnection
 import com.dlidar.mobile.infra.ble.gatt.GattConnector
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,31 +51,34 @@ class AndroidBleTransport internal constructor(
         availability.problem()?.let { return@withLock fail(it) }
         linkState.value = LinkState.Connecting
 
-        val gatt = when (val outcome = withTimeoutOrNull(setupTimeout) { connector.connect(target) }) {
-            null -> return@withLock fail(DownReason.ConnectFailed(null))
-            is GattConnectOutcome.Failed -> return@withLock fail(outcome.reason)
-            is GattConnectOutcome.Connected -> outcome.connection
-        }
-        val setup = try {
-            withTimeoutOrNull(setupTimeout) { setUp(gatt) } ?: Setup.Failed(DownReason.SetupFailed("timeout"))
-        } catch (e: CancellationException) {
-            // Not registered as active yet, so nobody else would close it.
-            gatt.close()
-            throw e
-        }
-        when (setup) {
-            is Setup.Failed -> {
-                gatt.close()
-                fail(setup.reason)
+        // A GATT connection that is not adopted as the active one is closed on every way out:
+        // failure, timeout, cancellation, even when the connector's result arrived as the
+        // timeout or a cancel struck.
+        var opened: GattConnection? = null
+        var adopted = false
+        try {
+            val outcome = withTimeoutOrNull(setupTimeout) {
+                connector.connect(target).also { if (it is GattConnectOutcome.Connected) opened = it.connection }
             }
-            is Setup.Ready -> {
-                val connection = BleConnection(gatt, maxWritePiece = setup.mtu - ATT_HEADER_BYTES)
-                active = connection
-                linkState.value = LinkState.Up(connection)
-                scope.launch { onDisconnected(connection, gatt.disconnected.await()) }
-                logger.debug(TAG) { "link up, MTU ${setup.mtu}" }
-                ConnectResult.Connected(connection)
+            val gatt = when (outcome) {
+                null -> return@withLock fail(DownReason.ConnectFailed(null))
+                is GattConnectOutcome.Failed -> return@withLock fail(outcome.reason)
+                is GattConnectOutcome.Connected -> outcome.connection
             }
+            when (val setup = withTimeoutOrNull(setupTimeout) { setUp(gatt) } ?: Setup.Failed(DownReason.SetupFailed("timeout"))) {
+                is Setup.Failed -> fail(setup.reason)
+                is Setup.Ready -> {
+                    val connection = BleConnection(gatt, maxWritePiece = setup.mtu - ATT_HEADER_BYTES)
+                    adopted = true
+                    active = connection
+                    linkState.value = LinkState.Up(connection)
+                    scope.launch { onDisconnected(connection, gatt.disconnected.await()) }
+                    logger.debug(TAG) { "link up, MTU ${setup.mtu}" }
+                    ConnectResult.Connected(connection)
+                }
+            }
+        } finally {
+            if (!adopted) opened?.close()
         }
     }
 

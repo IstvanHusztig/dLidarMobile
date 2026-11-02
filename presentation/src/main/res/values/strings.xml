@@ -26,7 +26,6 @@
     <string name="conn_waiting">Connection lost. Trying again in %1$d s…</string>
     <string name="conn_waiting_bluetooth">Bluetooth is off. The app reconnects when it is switched on.</string>
     <string name="conn_refused">Another phone is connected to this scanner. Only one phone can be connected at a time.</string>
-    <string name="conn_failed_bluetooth">Bluetooth is off.</string>
     <string name="conn_failed_permission">The Bluetooth permission is missing.</string>
     <string name="conn_failed_not_dlidar">This device is not a dLidar scanner.</string>
     <string name="conn_failed_other">The connection failed.</string>

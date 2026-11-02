@@ -22,6 +22,6 @@ sealed interface ConnectionState {
 
     /** Connecting cannot succeed until the user fixes something. The app does not retry on its own. */
     data class Failed(val reason: Reason) : ConnectionState {
-        enum class Reason { BluetoothOff, PermissionMissing, NotADLidar, Other }
+        enum class Reason { PermissionMissing, NotADLidar, Other }
     }
 }

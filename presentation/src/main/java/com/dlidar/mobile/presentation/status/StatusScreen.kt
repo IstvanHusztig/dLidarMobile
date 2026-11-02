@@ -86,7 +86,6 @@ private fun ConnectionBanner(state: StatusUiState, onAction: (StatusAction) -> U
         ConnectionState.WaitingForBluetooth -> stringResource(R.string.conn_waiting_bluetooth)
         is ConnectionState.Refused -> stringResource(R.string.conn_refused)
         is ConnectionState.Failed -> when (connection.reason) {
-            ConnectionState.Failed.Reason.BluetoothOff -> stringResource(R.string.conn_failed_bluetooth)
             ConnectionState.Failed.Reason.PermissionMissing -> stringResource(R.string.conn_failed_permission)
             ConnectionState.Failed.Reason.NotADLidar -> stringResource(R.string.conn_failed_not_dlidar)
             ConnectionState.Failed.Reason.Other -> stringResource(R.string.conn_failed_other)

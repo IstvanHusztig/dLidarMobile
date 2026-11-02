@@ -22,6 +22,8 @@ internal class SessionHandshake(
     private val session: ProtocolSession,
     private val refresher: StatusRefresher,
     private val record: (ScannerInput) -> Unit,
+    /** Called once hello allows further requests; until then nobody else may send. */
+    private val onReady: () -> Unit,
     private val logger: Logger,
 ) {
     suspend fun run() {
@@ -33,6 +35,7 @@ internal class SessionHandshake(
             return
         }
         if (hello is CallResult.Success) session.applyLimits(hello.value.maxRequestBytes, hello.value.maxMessageBytes)
+        onReady()
         refresher.start()
         refresher.request()
         fetchInfo()

@@ -159,7 +159,8 @@ logged and dropped; a response out of request order is matched by id and logged.
 
 ### Ordering guarantee
 Events go to a `SessionListener` and call results to an optional `onAnswer` callback. Both run
-on the reader, in stream order and without suspending. The repository updates its state there,
+on the reader, in stream order and without suspending; only `StreamBroken` comes from the
+writing call instead. The repository updates its state there,
 so an older `status.get` result can never overwrite a newer `state` event.
 
 ### Typed commands (OCP)
@@ -189,7 +190,7 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
 
 | Class | Responsibility |
 |---|---|
-| `ScannerRepositoryImpl : ScannerRepository` | Orchestrates the connection lifecycle. Each `connect()` starts a `Run`, which connects, runs sessions and reconnects. A run that is no longer current cannot change the snapshot, and a new run waits for the previous run's cleanup. When the link drops, it lets the reader finish (up to 1 s), so a `too_many_clients` sent just before the drop still counts as a refusal. Backoff starts over only after a link on which the scanner answered. After a protocol mismatch, `refreshStatus()` fails with `IncompatibleProtocol`. |
+| `ScannerRepositoryImpl : ScannerRepository` | Orchestrates the connection lifecycle. Each `connect()` starts a `Run`, which connects, runs sessions and reconnects. A run that is no longer current cannot change the snapshot, and a new run cancels every unfinished run at once and waits for all their cleanups. The session goes live for `refreshStatus()` only after `hello` allowed further requests. A session that ended with its link still up (a broken stream) releases the link before the backoff. When the link drops, it lets the reader finish (up to 1 s), so a `too_many_clients` sent just before the drop still counts as a refusal. Backoff starts over only after a link on which the scanner answered. After a protocol mismatch, `refreshStatus()` fails with `IncompatibleProtocol`. |
 | `SessionHandshake` | Every link up: `hello` first, because its answer decides compatibility, then `status.get` (through the refresher) and `info.get` together. If `hello` returns `unknown_command` or times out, compatibility is `Unknown` and the rest still goes out, because `hello` is optional. On `unsupported_version` or a protocol other than 1, nothing more is sent. |
 | `SessionSignalHandler` | Routes a session's signals: events become inputs through the decoders, gaps a refresh; `too_many_clients` and `StreamBroken` end the session. |
 | `CallRetry` | *App policy:* `status.get` and `info.get` must get through on every connection, so a timeout or `busy` is retried after 1, 2, 4, 8 s. Other failures are not, because the answer would not change. |
@@ -211,6 +212,10 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
   value (or the default 23 if the request fails) → enable notifications and write the CCCD →
   `Up(mtu - 3)`. Connecting and setup each time out after 20 s. A connect that is cancelled
   or fails during setup closes its GATT connection.
+- *Known limitation:* the switch to `WaitingForBluetooth` relies on Android reporting the link
+  loss when the adapter is turned off. A device that skips that callback would stay
+  `Connected` until a request fails. An adapter-state receiver can be added if that shows up
+  in practice.
 - Closing disconnects first and waits up to 2 s for the link to go down before releasing the
   client. Closing at once can leave the link up on the scanner, which would then refuse the
   phone's next connection.

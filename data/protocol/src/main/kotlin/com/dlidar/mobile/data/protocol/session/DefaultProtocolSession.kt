@@ -17,6 +17,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -96,10 +98,17 @@ class DefaultProtocolSession(
     }
 
     private suspend fun send(call: PendingCall<*>): Sent = writeMutex.withLock {
+        // A caller cancelled while it waited for the lock sends nothing.
+        currentCoroutineContext().ensureActive()
         val id = dispatcher.register(call) ?: return@withLock Sent.Failed(CallFailure.NotConnected)
         val command = call.command
-        val line = codec.encodeRequest(id, command.name, command.args())
-        val pieces = when (val split = splitter.split(line, connection.maxWritePiece)) {
+        val split = try {
+            splitter.split(codec.encodeRequest(id, command.name, command.args()), connection.maxWritePiece)
+        } catch (e: Exception) {
+            dispatcher.remove(id)
+            throw e
+        }
+        val pieces = when (split) {
             is SplitResult.Pieces -> split.pieces
             is SplitResult.TooLarge -> {
                 dispatcher.remove(id)

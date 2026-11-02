@@ -58,9 +58,14 @@ internal class AndroidGattConnection(private val logger: Logger) : BluetoothGatt
     suspend fun awaitConnected(): Boolean = connected.await()
 
     override suspend fun discoverServices(): Boolean {
-        val result = runOp(OpKind.DISCOVER) { it.discoverServices() } ?: return false
-        if (result.status != BluetoothGatt.GATT_SUCCESS) return false
-        val service = gatt?.getService(BleUuids.SERVICE)
+        var discoveredOn: BluetoothGatt? = null
+        val result = runOp(OpKind.DISCOVER) {
+            discoveredOn = it
+            it.discoverServices()
+        } ?: return false
+        // A link that dropped right after discovery is a setup failure (retried), not a missing service.
+        if (result.status != BluetoothGatt.GATT_SUCCESS || disconnectedStatus.isCompleted) return false
+        val service = discoveredOn?.getService(BleUuids.SERVICE)
         rx = service?.getCharacteristic(BleUuids.RX)
         tx = service?.getCharacteristic(BleUuids.TX)
         return true
