@@ -38,7 +38,7 @@ fun TrafficLogScreen(
             Text("${entries.size} entries")
         }
         LazyColumn(Modifier.fillMaxWidth().weight(1f), reverseLayout = true) {
-            items(entries.asReversed()) { entry ->
+            items(entries.asReversed(), key = { it.id }) { entry ->
                 Text(
                     entry.format(zone),
                     fontFamily = FontFamily.Monospace,

@@ -304,7 +304,9 @@ Send:
   to generic variants; send only documented args.
 - **Logging:** behind the `Logger` port. Args named in `ProtocolCommand.sensitiveArgs` are
   redacted before a request is logged; the codec has no list of secret names of its own. Debug
-  messages, which may hold raw payloads, are written only in debug builds.
+  messages, which may hold raw payloads, are written only in debug builds. The debug traffic
+  log is a second channel: sent lines are redacted the same way, received lines are kept as
+  they arrive.
 - **Secrets:** passwords live only in memory (`CharArray`, cleared after the request is sent).
   Domain types override `toString` to hide them. They are never written to storage
   unencrypted.

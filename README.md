@@ -51,8 +51,8 @@ test uses the BLE link directly, so it runs while the status screen is disconnec
 The status screen has a **Log** button in debug builds. It lists every protocol message sent
 (`->`) and received (`<-`), dropped messages (`!!`) and link changes (`--`), newest at the
 bottom. **Share** sends the log as text (the newest 100,000 characters), for example to report
-what the real scanner answered. Passwords are redacted before they reach the log, and the log
-is kept in memory only.
+what the real scanner answered. Passwords the app sends are redacted before they reach the
+log; received lines are shown as they arrive. The log is kept in memory only.
 
 ## Modules
 

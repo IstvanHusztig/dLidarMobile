@@ -31,9 +31,9 @@ class TrafficLogTest {
 
         assertEquals(
             listOf(
-                TrafficEntry(1, TrafficEntry.Kind.Received, "b"),
-                TrafficEntry(2, TrafficEntry.Kind.Dropped, "dropped a message of 99 bytes, over the limit"),
-                TrafficEntry(3, TrafficEntry.Kind.Link, "link up, write piece 514 B"),
+                TrafficEntry(1, 1, TrafficEntry.Kind.Received, "b"),
+                TrafficEntry(2, 2, TrafficEntry.Kind.Dropped, "dropped a message of 99 bytes, over the limit"),
+                TrafficEntry(3, 3, TrafficEntry.Kind.Link, "link up, write piece 514 B"),
             ),
             log.entries.value,
         )
@@ -59,6 +59,21 @@ class TrafficLogTest {
             "(1 older entries left out)\n00:00:00.001 <- {\"id\":1,\"ok\":true}",
             log.export(maxChars = 40, zone = ZoneOffset.UTC),
         )
+    }
+
+    @Test
+    fun `export keeps the newest entry even when it alone is over the limit`() {
+        log.onTraffic(Traffic.Sent("a"))
+        log.onTraffic(Traffic.Received("x".repeat(100)))
+        assertEquals("(1 older entries left out)\n00:00:00.001 <- xxxx", log.export(maxChars = 20, zone = ZoneOffset.UTC))
+    }
+
+    @Test
+    fun `entries added from several threads are all kept`() {
+        val big = TrafficLog(capacity = 10_000)
+        (1..4).map { Thread { repeat(1000) { big.onTraffic(Traffic.Received("m")) } }.apply { start() } }.forEach { it.join() }
+        assertEquals(4000, big.entries.value.size)
+        assertEquals(4000, big.entries.value.map { it.id }.toSet().size)
     }
 
     @Test

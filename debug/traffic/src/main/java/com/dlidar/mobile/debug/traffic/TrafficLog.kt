@@ -11,8 +11,10 @@ import kotlinx.coroutines.flow.update
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicLong
 
-data class TrafficEntry(val atMillis: Long, val kind: Kind, val text: String) {
+/** [id] is unique within one log and only keys the entry in lists. */
+data class TrafficEntry(val id: Long, val atMillis: Long, val kind: Kind, val text: String) {
     enum class Kind(val mark: String) { Sent("->"), Received("<-"), Dropped("!!"), Link("--") }
 
     fun format(zone: ZoneId = ZoneId.systemDefault()): String =
@@ -32,6 +34,7 @@ class TrafficLog(
     private val clock: () -> Long = System::currentTimeMillis,
 ) : TrafficListener {
 
+    private val nextId = AtomicLong()
     private val mutableEntries = MutableStateFlow<List<TrafficEntry>>(emptyList())
     val entries: StateFlow<List<TrafficEntry>> = mutableEntries.asStateFlow()
 
@@ -55,14 +58,20 @@ class TrafficLog(
         mutableEntries.value = emptyList()
     }
 
-    /** The newest entries as text, at most [maxChars] long; older entries are left out first. */
+    /**
+     * The newest entries as text, at most about [maxChars] long; older entries are left out
+     * first. The newest entry is always kept, cut to [maxChars] if it is longer.
+     */
     fun export(maxChars: Int = Int.MAX_VALUE, zone: ZoneId = ZoneId.systemDefault()): String {
         val all = entries.value
         val kept = ArrayDeque<String>()
         var length = 0
         for (entry in all.asReversed()) {
             val line = entry.format(zone)
-            if (length + line.length + 1 > maxChars) break
+            if (length + line.length + 1 > maxChars) {
+                if (kept.isEmpty()) kept.addFirst(line.take(maxChars))
+                break
+            }
             kept.addFirst(line)
             length += line.length + 1
         }
@@ -72,7 +81,7 @@ class TrafficLog(
     }
 
     private fun add(kind: TrafficEntry.Kind, text: String) {
-        val entry = TrafficEntry(clock(), kind, text)
+        val entry = TrafficEntry(nextId.getAndIncrement(), clock(), kind, text)
         mutableEntries.update { (it + entry).takeLast(capacity) }
     }
 

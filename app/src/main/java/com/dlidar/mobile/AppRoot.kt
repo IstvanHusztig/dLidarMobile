@@ -34,7 +34,10 @@ private sealed interface Screen {
     data class LinkTest(val candidate: ScannerCandidate) : Screen
 }
 
-/** The link test is not restored after recreation; its connection is gone by then. */
+/**
+ * The link test is not restored after recreation; its connection is gone by then. The traffic
+ * log is restored (after process death it is empty) and goes back to the status screen.
+ */
 private val ScreenSaver = Saver<Screen, String>(
     save = {
         when (it) {
@@ -83,7 +86,7 @@ fun AppRoot(container: AppContainer) {
         }
         Screen.TrafficLog -> {
             BackHandler { screen = Screen.Status }
-            DebugTools.TrafficLog(onBack = { screen = Screen.Status })
+            DebugTools.TrafficLogRoute(onBack = { screen = Screen.Status })
         }
         is Screen.LinkTest -> {
             BackHandler { screen = Screen.Connect }

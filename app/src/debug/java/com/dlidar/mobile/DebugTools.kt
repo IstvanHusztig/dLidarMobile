@@ -30,7 +30,11 @@ object DebugTools {
 
     val traffic: TrafficListener get() = trafficLog
 
-    /** Called once the container is built: logs every link change next to the messages. */
+    /**
+     * Called once the container is built: logs link changes next to the messages. They come from
+     * a StateFlow on their own coroutine, so a short-lived state can be skipped and a change can
+     * land just after the first message of a new link.
+     */
     fun start(container: AppContainer) {
         container.appScope.launch { container.transport.link.collect(trafficLog::onLink) }
     }
@@ -52,7 +56,7 @@ object DebugTools {
     }
 
     @Composable
-    fun TrafficLog(onBack: () -> Unit) {
+    fun TrafficLogRoute(onBack: () -> Unit) {
         val entries by trafficLog.entries.collectAsStateWithLifecycle()
         val context = LocalContext.current
         TrafficLogScreen(

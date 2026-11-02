@@ -20,5 +20,5 @@ object DebugTools {
 
     @Suppress("UNUSED_PARAMETER")
     @Composable
-    fun TrafficLog(onBack: () -> Unit) = Unit
+    fun TrafficLogRoute(onBack: () -> Unit) = Unit
 }
