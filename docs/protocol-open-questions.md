@@ -34,6 +34,8 @@ says so, and that part is still open for the scanner side to answer.
 
    **Answer:** The spec says the app requests MTU 247 and the scanner splits messages by MTU-3; the echo service's `info` reports the MTU. A cap, and whether the scanner starts the exchange: Not in the spec; still open for the scanner side.
 
+   **Observed (2026-11-02, echo service, Android phone):** the phone asked for 517 and `info` reported `mtu=517`, so write pieces were 514 B. The scanner did not cap the MTU below 517.
+
 6. **What does the scanner do with an oversized or unreadable line from the app?** The spec
    says `too_large` and "unreadable" arrive as `"id":null`. Does the request that caused it
    ever get its own response? *App:* that request times out after 5 s.
@@ -202,4 +204,6 @@ says so, and that part is still open for the scanner side to answer.
     count the newline?
 
    **Answer:** The spec says `info` returns the echo service's state including the MTU, and `flood N SIZE` sends N numbered messages (`seq=00001 xxx…`) of SIZE bytes. The `info` format, and whether SIZE counts the newline: Not in the spec; still open for the scanner side.
+
+   **Observed (2026-11-02):** `info` answered `info mode=properties secure=1 mtu=517 notifying=1 notify_fd=-1 devices=1`; the meaning of each field is still open. `flood 200 200` delivered 200/200 messages of 200 B, none missing or out of order, at about 37 KB/s; the app counted 200 B per message, so whether SIZE includes the newline is still open.
 
