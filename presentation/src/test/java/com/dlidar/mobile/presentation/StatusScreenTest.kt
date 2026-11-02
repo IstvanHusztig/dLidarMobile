@@ -1,0 +1,90 @@
+package com.dlidar.mobile.presentation
+
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import com.dlidar.mobile.domain.model.ConnectionState
+import com.dlidar.mobile.domain.model.DeviceInfo
+import com.dlidar.mobile.domain.model.RecordingState
+import com.dlidar.mobile.domain.model.RecordingSummary
+import com.dlidar.mobile.domain.model.ScannerStatus
+import com.dlidar.mobile.domain.model.SensorType
+import com.dlidar.mobile.domain.model.Warning
+import com.dlidar.mobile.domain.model.WarningKind
+import com.dlidar.mobile.presentation.status.StatusAction
+import com.dlidar.mobile.presentation.status.StatusScreen
+import com.dlidar.mobile.presentation.status.StatusUiState
+import org.junit.Assert.assertEquals
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.time.Instant
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w411dp-h2400dp")
+class StatusScreenTest {
+
+    @get:Rule
+    val compose = createComposeRule()
+
+    private val live = StatusUiState(
+        scannerName = "dLidar",
+        connection = ConnectionState.Connected,
+        isLive = true,
+        status = ScannerStatus(RecordingState.Recording, 12, 2_400_000, true, "/media/usb/scans"),
+        freeBytes = null,
+        info = DeviceInfo("1.2.3", SensorType.LivoxMid360s, "MID-360S", 3, 1),
+        warnings = listOf(Warning(7, WarningKind.Unknown("lens_fogged"), "The lens is fogged up.", Instant.EPOCH)),
+        summary = RecordingSummary("fused", "keep", 100, 99, 1, Instant.EPOCH),
+    )
+
+    @Test
+    fun `shows state, counts, unknown free space, warning text, device and summary`() {
+        compose.setContent { StatusScreen(live, onAction = {}) }
+
+        compose.onNodeWithText("Connected").assertIsDisplayed()
+        compose.onNodeWithText("/media/usb/scans").assertExists()
+        compose.onNodeWithText("Unknown").assertExists()
+        compose.onNodeWithText("The lens is fogged up.").assertExists()
+        compose.onNodeWithText("1.2.3").assertExists()
+        compose.onNodeWithText("keep").assertExists()
+    }
+
+    @Test
+    fun `an unknown recording state is shown generically`() {
+        compose.setContent { StatusScreen(live.copy(status = live.status!!.copy(state = RecordingState.Unknown("calibrating"))), onAction = {}) }
+        compose.onNodeWithText("Unknown (calibrating)").assertExists()
+    }
+
+    @Test
+    fun `update the app is shown when the protocol does not match`() {
+        compose.setContent { StatusScreen(live.copy(updateAppRequired = true), onAction = {}) }
+        compose.onNodeWithText("The scanner speaks a different protocol version than this app. Please update the app.").assertExists()
+    }
+
+    @Test
+    fun `another phone connected offers retry`() {
+        val actions = mutableListOf<StatusAction>()
+        val refused = live.copy(
+            connection = ConnectionState.Refused(ConnectionState.Refused.Reason.AnotherPhoneConnected),
+            isLive = false,
+            canRetry = true,
+        )
+        compose.setContent { StatusScreen(refused, onAction = { actions += it }) }
+
+        compose.onNodeWithText("Last known values; not live.").assertExists()
+        compose.onNodeWithText("Retry").performClick()
+        assertEquals(listOf<StatusAction>(StatusAction.Retry), actions)
+    }
+
+    @Test
+    fun `dismissing a warning sends its id`() {
+        val actions = mutableListOf<StatusAction>()
+        compose.setContent { StatusScreen(live, onAction = { actions += it }) }
+        compose.onNodeWithText("Dismiss").performClick()
+        assertEquals(listOf<StatusAction>(StatusAction.DismissWarning(7)), actions)
+    }
+}

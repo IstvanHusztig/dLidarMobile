@@ -1,0 +1,286 @@
+package com.dlidar.mobile.testing
+
+import com.dlidar.mobile.data.protocol.framing.DecodedFrame
+import com.dlidar.mobile.data.protocol.framing.FrameDecoder
+import com.dlidar.mobile.data.protocol.transport.ByteConnection
+import com.dlidar.mobile.data.protocol.transport.ByteTransport
+import com.dlidar.mobile.data.protocol.transport.ConnectResult
+import com.dlidar.mobile.data.protocol.transport.DownReason
+import com.dlidar.mobile.data.protocol.transport.LinkState
+import com.dlidar.mobile.data.protocol.transport.WriteResult
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import java.util.concurrent.CopyOnWriteArrayList
+
+/**
+ * Plays the scanner's side of the link, following protocol v1: it reassembles written pieces,
+ * answers hello, status.get and info.get, numbers events from 1 per connection, and splits
+ * everything it sends into notifications of at most MTU-3 bytes, each message starting in a
+ * fresh notification.
+ *
+ * It also checks the app: pieces larger than MTU-3, requests without `"v":1`, and undocumented
+ * args are recorded in [violations] (and args are rejected with bad_request, as the scanner does).
+ */
+class FakeScanner(var mtu: Int = 247) : ByteTransport {
+
+    private val linkState = MutableStateFlow<LinkState>(LinkState.Idle)
+    override val link: StateFlow<LinkState> = linkState.asStateFlow()
+
+    /** Every request received, in order, across connections. */
+    val requests: MutableList<JsonObject> = CopyOnWriteArrayList()
+
+    /** Protocol rules the app broke. Tests should assert this stays empty. */
+    val violations: MutableList<String> = CopyOnWriteArrayList()
+
+    /** Outcomes for the next connect attempts; when empty, connecting succeeds. */
+    val connectFailures: ArrayDeque<DownReason> = ArrayDeque()
+
+    var connectAttempts = 0
+        private set
+
+    var status = FakeStatus()
+
+    /** The hello result; null makes hello answer unknown_command. */
+    var hello: JsonObject? = defaultHello()
+
+    var info: JsonObject = buildJsonObject {
+        put("version", "1.0.0")
+        put("sensor", "unitree_l2")
+        put("sensor_model", "L2")
+        put("recording_format", 3)
+        put("protocol", 1)
+    }
+
+    /** Commands the fake receives but never answers. */
+    val silentCommands: MutableSet<String> = mutableSetOf()
+
+    /** Error codes to answer for a command before it answers normally again, one per request. */
+    val scriptedErrors: MutableMap<String, ArrayDeque<String>> = mutableMapOf()
+
+    /** False turns the fake into a plain byte peer that only records [writtenPieces]. */
+    var protocolEnabled = true
+
+    /** Every piece written, in order, across connections. */
+    val writtenPieces: MutableList<ByteArray> = CopyOnWriteArrayList()
+
+    private var connection: FakeConnection? = null
+    private var seq = 0L
+
+    val commandNames: List<String> get() = requests.map { it["cmd"]!!.jsonPrimitive.content }
+
+    override suspend fun connect(target: String): ConnectResult {
+        connectAttempts++
+        connection?.end()
+        linkState.value = LinkState.Connecting
+        connectFailures.removeFirstOrNull()?.let { reason ->
+            linkState.value = LinkState.Down(reason)
+            return ConnectResult.Failed(reason)
+        }
+        val fresh = FakeConnection(maxWritePiece = mtu - 3)
+        connection = fresh
+        seq = 0
+        linkState.value = LinkState.Up(fresh)
+        return ConnectResult.Connected(fresh)
+    }
+
+    override suspend fun disconnect() {
+        if (endConnection() || linkState.value !is LinkState.Idle) linkState.value = LinkState.Down(DownReason.Closed)
+    }
+
+    /** The link drops, as when the scanner goes out of range. */
+    fun dropLink(status: Int = 8) {
+        endConnection()
+        linkState.value = LinkState.Down(DownReason.ConnectionLost(status))
+    }
+
+    val isConnected: Boolean get() = connection != null
+
+    // --- Scanner behaviour -------------------------------------------------------------------
+
+    /** Changes the recording status and announces it with a state event. */
+    fun changeStatus(newStatus: FakeStatus) {
+        status = newStatus
+        emitEvent("state", newStatus.toStateEvent())
+    }
+
+    fun progress(chunks: Long, points: Long) {
+        status = status.copy(chunks = chunks, points = points)
+        emitEvent("progress", buildJsonObject {
+            put("chunks", chunks)
+            put("points", points)
+        })
+    }
+
+    fun warning(kind: String, text: String) {
+        emitEvent("warning", buildJsonObject {
+            put("kind", kind)
+            put("text", text)
+        })
+    }
+
+    fun summary(imuMode: String = "fused", decision: String = "keep", imuIn: Long = 1000, imuOut: Long = 998, lostSamples: Long = 2) {
+        emitEvent("summary", buildJsonObject {
+            put("imu_mode", imuMode)
+            put("decision", decision)
+            put("imu_in", imuIn)
+            put("imu_out", imuOut)
+            put("lost_samples", lostSamples)
+        })
+    }
+
+    /**
+     * Sends an event. [skip] leaves out that many seq numbers (a gap); [dropped] adds the field.
+     * [extra] adds unknown top-level fields.
+     */
+    fun emitEvent(name: String, data: JsonObject, skip: Int = 0, dropped: Long? = null, extra: Map<String, JsonElement> = emptyMap()) {
+        seq += 1 + skip
+        sendJson(buildJsonObject {
+            put("event", name)
+            put("seq", seq)
+            if (dropped != null) put("dropped", dropped)
+            put("data", data)
+            extra.forEach { (key, value) -> put(key, value) }
+        })
+    }
+
+    fun sendUnsolicitedError(code: String, message: String = code) {
+        sendJson(buildJsonObject {
+            put("id", JsonNull)
+            put("ok", false)
+            put("error", buildJsonObject {
+                put("code", code)
+                put("message", message)
+            })
+        })
+    }
+
+    /** Sends one raw line, split into notifications of at most MTU-3 bytes. */
+    fun sendLine(line: String) {
+        val current = connection ?: error("not connected")
+        val bytes = (line + "\n").toByteArray(Charsets.UTF_8)
+        for (start in bytes.indices step current.maxWritePiece) {
+            current.notify(bytes.copyOfRange(start, minOf(start + current.maxWritePiece, bytes.size)))
+        }
+    }
+
+    /** Sends one notification exactly as given. */
+    fun notifyRaw(bytes: ByteArray) {
+        (connection ?: error("not connected")).notify(bytes)
+    }
+
+    private fun sendJson(message: JsonObject) = sendLine(Json.encodeToString(JsonObject.serializer(), message))
+
+    private fun endConnection(): Boolean {
+        val current = connection ?: return false
+        connection = null
+        current.end()
+        return true
+    }
+
+    // --- Requests ----------------------------------------------------------------------------
+
+    private fun onRequestLine(line: String) {
+        val request = try {
+            Json.parseToJsonElement(line).jsonObject
+        } catch (e: IllegalArgumentException) {
+            violations += "request is not a JSON object: $line"
+            return sendUnsolicitedError("bad_request")
+        }
+        requests += request
+        val id = request["id"] ?: JsonNull
+        val cmd = (request["cmd"] as? JsonPrimitive)?.content
+        if ((request["v"] as? JsonPrimitive)?.content != "1") violations += "request without \"v\":1: $line"
+        if (cmd == null) return respondError(id, "bad_request", "missing cmd")
+        if (cmd in silentCommands) return
+        if (request["args"] != null) {
+            violations += "undocumented args for $cmd: $line"
+            return respondError(id, "bad_request", "unknown arg")
+        }
+        scriptedErrors[cmd]?.removeFirstOrNull()?.let { code -> return respondError(id, code, code) }
+        when (cmd) {
+            "hello" -> hello?.let { respond(id, it) } ?: respondError(id, "unknown_command", "unknown command")
+            "status.get" -> respond(id, status.toResult())
+            "info.get" -> respond(id, info)
+            else -> respondError(id, "unknown_command", "unknown command")
+        }
+    }
+
+    private fun respond(id: JsonElement, result: JsonObject) = sendJson(buildJsonObject {
+        put("id", id)
+        put("ok", true)
+        put("result", result)
+    })
+
+    private fun respondError(id: JsonElement, code: String, message: String) = sendJson(buildJsonObject {
+        put("id", id)
+        put("ok", false)
+        put("error", buildJsonObject {
+            put("code", code)
+            put("message", message)
+        })
+    })
+
+    private inner class FakeConnection(override val maxWritePiece: Int) : ByteConnection {
+        private val channel = Channel<ByteArray>(Channel.UNLIMITED)
+        private val decoder = FrameDecoder(maxMessageBytes = 4096)
+        override val incoming: Flow<ByteArray> = channel.receiveAsFlow()
+
+        override suspend fun write(piece: ByteArray): WriteResult {
+            if (connection !== this) return WriteResult.Failed("not connected")
+            writtenPieces += piece.copyOf()
+            if (piece.size > maxWritePiece) violations += "piece of ${piece.size} bytes, limit $maxWritePiece"
+            if (!protocolEnabled) return WriteResult.Ok
+            for (frame in decoder.feed(piece)) {
+                when (frame) {
+                    is DecodedFrame.Line -> onRequestLine(frame.text)
+                    else -> {
+                        violations += "unreadable request: $frame"
+                        sendUnsolicitedError("too_large")
+                    }
+                }
+            }
+            return WriteResult.Ok
+        }
+
+        fun notify(piece: ByteArray) {
+            channel.trySend(piece)
+        }
+
+        fun end() {
+            channel.close()
+        }
+    }
+
+    companion object {
+        fun defaultHello(protocol: Int = 1): JsonObject = buildJsonObject {
+            put("protocol", protocol)
+            put("server", "dLidar")
+            put("commands", buildJsonArray {
+                add(JsonPrimitive("hello"))
+                add(JsonPrimitive("status.get"))
+                add(JsonPrimitive("info.get"))
+            })
+            put("events", buildJsonArray {
+                listOf("state", "warning", "progress", "summary").forEach { add(JsonPrimitive(it)) }
+            })
+            put("limits", buildJsonObject {
+                put("max_request_bytes", 4096)
+                put("max_message_bytes", 16384)
+            })
+        }
+    }
+}

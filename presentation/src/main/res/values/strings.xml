@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Connect -->
+    <string name="connect_title">Find your scanner</string>
+    <string name="connect_scan">Search again</string>
+    <string name="connect_scanning">Searching for scanners…</string>
+    <string name="connect_none_found">No scanner found yet. Switch the scanner on and keep it close.</string>
+    <string name="connect_unnamed">Unnamed scanner</string>
+    <string name="connect_signal">Signal %1$d dBm</string>
+    <string name="connect_link_test">Link test</string>
+    <string name="problem_bluetooth_off">Bluetooth is off.</string>
+    <string name="problem_permission">The app needs permission to find and connect to the scanner.</string>
+    <string name="problem_location_off">Switch location on; this Android version needs it to find Bluetooth devices.</string>
+    <string name="problem_scan_failed">The search failed. Try again in a moment.</string>
+    <string name="fix_bluetooth">Turn Bluetooth on</string>
+    <string name="fix_permission">Grant permission</string>
+    <string name="fix_location">Open location settings</string>
+    <string name="fix_retry">Try again</string>
+
+    <!-- Status: connection -->
+    <string name="status_title_fallback">Scanner</string>
+    <string name="conn_disconnected">Disconnected</string>
+    <string name="conn_connecting">Connecting…</string>
+    <string name="conn_connecting_attempt">Connecting (attempt %1$d)…</string>
+    <string name="conn_connected">Connected</string>
+    <string name="conn_waiting">Connection lost. Trying again in %1$d s…</string>
+    <string name="conn_waiting_bluetooth">Bluetooth is off. The app reconnects when it is switched on.</string>
+    <string name="conn_refused">Another phone is connected to this scanner. Only one phone can be connected at a time.</string>
+    <string name="conn_failed_bluetooth">Bluetooth is off.</string>
+    <string name="conn_failed_permission">The Bluetooth permission is missing.</string>
+    <string name="conn_failed_not_dlidar">This device is not a dLidar scanner.</string>
+    <string name="conn_failed_other">The connection failed.</string>
+    <string name="update_app">The scanner speaks a different protocol version than this app. Please update the app.</string>
+    <string name="values_stale">Last known values; not live.</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="action_dismiss">Dismiss</string>
+    <string name="refresh_failed">Could not refresh the status.</string>
+
+    <!-- Status: recording -->
+    <string name="section_recording">Recording</string>
+    <string name="label_state">State</string>
+    <string name="label_chunks">Chunks</string>
+    <string name="label_points">Points</string>
+    <string name="label_last_ok">Last recording</string>
+    <string name="label_location">Location</string>
+    <string name="label_free_space">Free space</string>
+    <string name="value_unknown">Unknown</string>
+    <string name="value_waiting">—</string>
+    <string name="last_ok_yes">OK</string>
+    <string name="last_ok_no">Failed</string>
+    <string name="state_idle">Idle</string>
+    <string name="state_preparing">Preparing</string>
+    <string name="state_recording">Recording</string>
+    <string name="state_finalizing">Finalizing</string>
+    <string name="state_error">Error</string>
+    <string name="state_unknown">Unknown (%1$s)</string>
+
+    <!-- Status: warnings, device, summary -->
+    <string name="section_warnings">Warnings</string>
+    <string name="section_device">Device</string>
+    <string name="label_version">Software version</string>
+    <string name="label_sensor">Sensor</string>
+    <string name="label_sensor_model">Sensor model</string>
+    <string name="label_recording_format">Recording format</string>
+    <string name="label_protocol">Protocol</string>
+    <string name="sensor_unitree_l2">Unitree L2</string>
+    <string name="sensor_livox_mid360s">Livox Mid-360S</string>
+    <string name="section_summary">Last recording summary</string>
+    <string name="label_imu_mode">IMU mode</string>
+    <string name="label_decision">Decision</string>
+    <string name="label_imu_in">IMU samples in</string>
+    <string name="label_imu_out">IMU samples out</string>
+    <string name="label_lost_samples">Lost samples</string>
+</resources>

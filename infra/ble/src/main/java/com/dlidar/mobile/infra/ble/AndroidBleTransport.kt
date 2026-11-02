@@ -1,0 +1,160 @@
+package com.dlidar.mobile.infra.ble
+
+import android.content.Context
+import com.dlidar.mobile.data.protocol.log.Logger
+import com.dlidar.mobile.data.protocol.transport.ByteConnection
+import com.dlidar.mobile.data.protocol.transport.ByteTransport
+import com.dlidar.mobile.data.protocol.transport.ConnectResult
+import com.dlidar.mobile.data.protocol.transport.DownReason
+import com.dlidar.mobile.data.protocol.transport.LinkState
+import com.dlidar.mobile.data.protocol.transport.WriteResult
+import com.dlidar.mobile.infra.ble.gatt.AndroidBluetoothAvailability
+import com.dlidar.mobile.infra.ble.gatt.AndroidGattConnector
+import com.dlidar.mobile.infra.ble.gatt.BluetoothAvailability
+import com.dlidar.mobile.infra.ble.gatt.GattConnectOutcome
+import com.dlidar.mobile.infra.ble.gatt.GattConnection
+import com.dlidar.mobile.infra.ble.gatt.GattConnector
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+
+/**
+ * [ByteTransport] over BLE GATT. The link is reported `Up` only after the services are found,
+ * the MTU is negotiated (247 requested) and TX notifications are on, so nothing is written to RX
+ * before that. Writes use write-with-response, so GATT does the flow control (an app choice).
+ */
+class AndroidBleTransport internal constructor(
+    private val connector: GattConnector,
+    private val availability: BluetoothAvailability,
+    private val scope: CoroutineScope,
+    private val logger: Logger,
+    private val setupTimeout: Duration = 20.seconds,
+) : ByteTransport {
+
+    private val linkState = MutableStateFlow<LinkState>(LinkState.Idle)
+    override val link: StateFlow<LinkState> = linkState.asStateFlow()
+
+    private val mutex = Mutex()
+    private var active: BleConnection? = null
+
+    override suspend fun connect(target: String): ConnectResult = mutex.withLock {
+        closeActive()
+        availability.problem()?.let { return@withLock fail(it) }
+        linkState.value = LinkState.Connecting
+
+        val gatt = when (val outcome = withTimeoutOrNull(setupTimeout) { connector.connect(target) }) {
+            null -> return@withLock fail(DownReason.ConnectFailed(null))
+            is GattConnectOutcome.Failed -> return@withLock fail(outcome.reason)
+            is GattConnectOutcome.Connected -> outcome.connection
+        }
+        val setup = try {
+            withTimeoutOrNull(setupTimeout) { setUp(gatt) } ?: Setup.Failed(DownReason.SetupFailed("timeout"))
+        } catch (e: CancellationException) {
+            // Not registered as active yet, so nobody else would close it.
+            gatt.close()
+            throw e
+        }
+        when (setup) {
+            is Setup.Failed -> {
+                gatt.close()
+                fail(setup.reason)
+            }
+            is Setup.Ready -> {
+                val connection = BleConnection(gatt, maxWritePiece = setup.mtu - ATT_HEADER_BYTES)
+                active = connection
+                linkState.value = LinkState.Up(connection)
+                scope.launch { onDisconnected(connection, gatt.disconnected.await()) }
+                logger.debug(TAG) { "link up, MTU ${setup.mtu}" }
+                ConnectResult.Connected(connection)
+            }
+        }
+    }
+
+    override suspend fun disconnect() {
+        mutex.withLock {
+            val hadLink = closeActive()
+            if (hadLink || linkState.value !is LinkState.Idle) linkState.value = LinkState.Down(DownReason.Closed)
+        }
+    }
+
+    private suspend fun setUp(gatt: GattConnection): Setup {
+        if (!gatt.discoverServices()) return Setup.Failed(DownReason.SetupFailed("service discovery"))
+        if (!gatt.hasScannerService()) return Setup.Failed(DownReason.ServiceNotFound)
+        val mtu = gatt.requestMtu(BleUuids.REQUESTED_MTU) ?: run {
+            logger.warn(TAG, "MTU request failed; continuing with the default MTU ${BleUuids.DEFAULT_MTU}")
+            BleUuids.DEFAULT_MTU
+        }
+        if (!gatt.enableTxNotifications()) return Setup.Failed(DownReason.SetupFailed("notifications"))
+        return Setup.Ready(mtu)
+    }
+
+    private suspend fun onDisconnected(connection: BleConnection, status: Int) {
+        mutex.withLock {
+            if (active !== connection) return@withLock
+            active = null
+            connection.close()
+            linkState.value = LinkState.Down(DownReason.ConnectionLost(status))
+            logger.debug(TAG) { "link lost, status $status" }
+        }
+    }
+
+    /** Callers hold [mutex]. Returns whether a connection was open. */
+    private suspend fun closeActive(): Boolean {
+        val connection = active ?: return false
+        active = null
+        connection.close()
+        return true
+    }
+
+    private fun fail(reason: DownReason): ConnectResult {
+        linkState.value = LinkState.Down(reason)
+        logger.debug(TAG) { "connect failed: $reason" }
+        return ConnectResult.Failed(reason)
+    }
+
+    private sealed interface Setup {
+        data class Ready(val mtu: Int) : Setup
+        data class Failed(val reason: DownReason) : Setup
+    }
+
+    private class BleConnection(private val gatt: GattConnection, override val maxWritePiece: Int) : ByteConnection {
+        @Volatile private var open = true
+        override val incoming: Flow<ByteArray> = gatt.notifications.receiveAsFlow()
+
+        override suspend fun write(piece: ByteArray): WriteResult {
+            if (!open) return WriteResult.Failed("not connected")
+            require(piece.size <= maxWritePiece) { "piece of ${piece.size} bytes exceeds $maxWritePiece" }
+            return if (gatt.writeRx(piece, withResponse = true)) WriteResult.Ok else WriteResult.Failed("GATT write failed")
+        }
+
+        suspend fun close() {
+            open = false
+            gatt.close()
+        }
+    }
+
+    companion object {
+        private const val TAG = "Ble"
+        private const val ATT_HEADER_BYTES = 3
+
+        fun create(context: Context, scope: CoroutineScope, logger: Logger): AndroidBleTransport {
+            val appContext = context.applicationContext
+            return AndroidBleTransport(
+                connector = AndroidGattConnector(appContext, logger),
+                availability = AndroidBluetoothAvailability(appContext),
+                scope = scope,
+                logger = logger,
+            )
+        }
+    }
+}
