@@ -2,12 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- BLE scanning needs location up to Android 11, Wi-Fi scan results up to Android 12L;
-         the higher bound wins. -->
+    <!-- BLE scanning needs location up to Android 11, Wi-Fi scan results on every version, so
+         the BLE module's upper bound is dropped. -->
     <uses-permission
         android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="32"
-        tools:replace="android:maxSdkVersion" />
+        tools:remove="android:maxSdkVersion" />
 
     <application
         android:name=".DLidarApplication"

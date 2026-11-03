@@ -11,13 +11,14 @@ picks a network.
 | `:infra:wifi` (new) | `AndroidWifiNetworkScanner`: `WifiManager.startScan()`, `SCAN_RESULTS_AVAILABLE_ACTION`, `scanResults`, the permission and location checks, `ScanThrottle`, and the pure `SecurityTypeResolver` |
 | `:data:scanner` | The commands `WifiConnectCommand` (`sensitiveArgs = setOf("psk")`) and `WifiStatusCommand`, `PendingOperations`, which matches a `result` event to its request by `op`, and `ScannerWifiImpl`, which joins and recovers through `wifi.status` |
 | `:presentation` | `WifiSetupScreen` (the scanner's Wi-Fi, the network list, a password dialog with `JoinForm`, a progress dialog, the result with Retry) and `WifiSetupViewModel`; a "Scanner Wi-Fi" button on the status screen when `hello` lists the commands |
-| `:app` | The Wi-Fi route: permissions (`NEARBY_WIFI_DEVICES` on Android 13+, fine location before), Wi-Fi and location settings |
+| `:app` | The Wi-Fi route: permissions (fine location, asked together with coarse), Wi-Fi and location settings |
 
 ## Steps
 
-1. **Scan.** Android 13 and newer need `NEARBY_WIFI_DEVICES` (with `neverForLocation`); older
-   versions need `ACCESS_FINE_LOCATION`. Location must be switched on, or the results stay
-   empty. `ScanThrottle` allows at most 4 `startScan()` calls per 2 minutes in the foreground;
+1. **Scan.** `startScan()` and `scanResults` need `ACCESS_FINE_LOCATION` on every version:
+   `NEARBY_WIFI_DEVICES` does not cover them (a Galaxy S25 on Android 16 refused the scan with
+   only that permission, and the list stayed empty). Location must be switched on, or the
+   results stay empty. `ScanThrottle` allows at most 4 `startScan()` calls per 2 minutes in the foreground;
    a refused or throttled scan shows the cached `scanResults` with their age.
 2. **List.** `NetworkListMerger` drops empty or hidden SSIDs and merges entries with the same
    SSID, keeping the strongest RSSI. The security type shown comes from the strongest entry.

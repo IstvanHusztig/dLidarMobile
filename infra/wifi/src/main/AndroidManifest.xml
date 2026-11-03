@@ -6,12 +6,8 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
-    <!-- Android 12L and older need location for Wi-Fi scan results. -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="32" />
-
-    <!-- Android 13 and newer. Scan results are not used to derive location. -->
-    <uses-permission
-        android:name="android.permission.NEARBY_WIFI_DEVICES"
-        android:usesPermissionFlags="neverForLocation"
-        tools:targetApi="tiramisu" />
+    <!-- Wi-Fi scan results need fine location on every version: NEARBY_WIFI_DEVICES does not
+         cover startScan or getScanResults (seen on a Galaxy S25 with Android 16). -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 </manifest>

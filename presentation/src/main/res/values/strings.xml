@@ -82,8 +82,8 @@
     <string name="wifi_result_unknown">The result is not known yet. Check the scanner\'s Wi-Fi above.</string>
     <string name="wifi_rejected_busy">The scanner is still joining another network. Try again shortly.</string>
     <string name="wifi_rejected_other">The request did not reach the scanner. Try again.</string>
-    <string name="wifi_problem_permission">The app needs permission to find Wi-Fi networks.</string>
-    <string name="wifi_problem_location">Switch location on; this Android version needs it to find Wi-Fi networks.</string>
+    <string name="wifi_problem_permission">Android only shows Wi-Fi networks to apps with precise location permission. The app uses it only to list networks.</string>
+    <string name="wifi_problem_location">Switch location on; Android needs it to list Wi-Fi networks.</string>
     <string name="wifi_problem_wifi_off">Wi-Fi is off on this phone. Switch it on to find networks.</string>
     <string name="wifi_fix_wifi">Open Wi-Fi settings</string>
 
