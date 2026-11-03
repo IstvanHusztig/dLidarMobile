@@ -164,4 +164,24 @@ class WifiSetupViewModelTest {
         runCurrent()
         assertNull(viewModel.state.value.outcome)
     }
+
+    @Test
+    fun `stopping the wait shows an unknown result and reads the status`() = runTest(dispatcher) {
+        fake.wifiJoinFinishes = false
+        val viewModel = viewModel()
+        viewModel.onAction(WifiSetupAction.Select(home))
+        viewModel.onAction(WifiSetupAction.Join("secret123".toCharArray()))
+        runCurrent()
+        assertEquals(home, viewModel.state.value.joining)
+
+        viewModel.onAction(WifiSetupAction.StopWaiting)
+        runCurrent()
+
+        viewModel.state.value.let {
+            assertNull(it.joining)
+            assertEquals(JoinOutcome.Finished(home, WifiJoinResult.Unknown), it.outcome)
+            assertEquals(WifiState.Connecting, it.scannerWifi?.state)
+        }
+        fake.finishWifiJoin()
+    }
 }

@@ -9,8 +9,9 @@ import com.dlidar.mobile.domain.result.Outcome
 /** The scanner's Wi-Fi: join a network, read the state. */
 interface ScannerWifi {
     /**
-     * Asks the scanner to join [ssid] and suspends until the outcome is known (about a minute at
-     * most), recovering through the scanner's status when the link drops meanwhile. A failure
+     * Asks the scanner to join [ssid] and suspends until the outcome is known (at most the
+     * scanner's timeout plus about 40 s), recovering through the scanner's status when the link
+     * drops meanwhile. A failure
      * means the request was not taken (busy, bad request, not connected). [password] is cleared
      * once sent.
      */

@@ -72,13 +72,14 @@
     <string name="wifi_password_rule">8 to 63 characters (letters, digits and symbols), or 64 hexadecimal digits.</string>
     <string name="wifi_show_password">Show password</string>
     <string name="wifi_open_confirm">This network has no password. Anyone nearby can see the scanner\'s traffic.</string>
-    <string name="wifi_joining">The scanner is joining the network. This can take up to a minute.</string>
+    <string name="wifi_joining">The scanner is joining the network. This usually takes under a minute.</string>
+    <string name="wifi_stop_waiting">Stop waiting</string>
     <string name="wifi_result_connected">The scanner is connected to %1$s.</string>
     <string name="wifi_result_connected_ip">The scanner is connected to %1$s, address %2$s.</string>
     <string name="wifi_result_wrong_password">Wrong password. Check it and try again.</string>
     <string name="wifi_result_not_found">The scanner did not find this network. It may be out of its range.</string>
     <string name="wifi_result_timeout">The scanner could not join in time. The network may be out of its range.</string>
-    <string name="wifi_result_unknown">The connection to the scanner was lost, so the result is unknown. Check the scanner\'s Wi-Fi above.</string>
+    <string name="wifi_result_unknown">The result is not known yet. Check the scanner\'s Wi-Fi above.</string>
     <string name="wifi_rejected_busy">The scanner is still joining another network. Try again shortly.</string>
     <string name="wifi_rejected_other">The request did not reach the scanner. Try again.</string>
     <string name="wifi_problem_permission">The app needs permission to find Wi-Fi networks.</string>

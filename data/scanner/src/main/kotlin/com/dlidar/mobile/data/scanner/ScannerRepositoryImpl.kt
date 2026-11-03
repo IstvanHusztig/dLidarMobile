@@ -19,7 +19,7 @@ import com.dlidar.mobile.data.scanner.event.ScannerEventDecoders
 import com.dlidar.mobile.data.scanner.session.SessionHandshake
 import com.dlidar.mobile.data.scanner.session.SessionSignalHandler
 import com.dlidar.mobile.data.scanner.session.SessionStop
-import com.dlidar.mobile.data.scanner.wifi.PendingOperations
+import com.dlidar.mobile.data.scanner.session.PendingOperations
 import com.dlidar.mobile.domain.model.Compatibility
 import com.dlidar.mobile.domain.model.ConnectionState
 import com.dlidar.mobile.domain.model.RecordingCommandResult
@@ -93,8 +93,11 @@ class ScannerRepositoryImpl(
     /** Set only after hello allowed further requests. */
     private val live = MutableStateFlow<LiveSession?>(null)
 
-    /** The session requests may use, once hello allowed them; null between links. */
-    internal val liveSession: StateFlow<LiveSession?> = live.asStateFlow()
+    /** The repository as features beside it see it (the interface stays internal). */
+    internal val liveSessionSource: LiveSessionSource = object : LiveSessionSource {
+        override val liveSession: StateFlow<LiveSession?> = live.asStateFlow()
+        override val snapshot: StateFlow<ScannerSnapshot> get() = this@ScannerRepositoryImpl.snapshot
+    }
 
     override fun connect(candidate: ScannerCandidate) {
         synchronized(lock) {
@@ -162,13 +165,6 @@ class ScannerRepositoryImpl(
         state.update { ScannerStateReducer.reduce(it, input) }
     }
 
-    /** A session past hello, with the requests whose outcome comes later on it. */
-    internal class LiveSession(
-        val session: ProtocolSession,
-        val operations: PendingOperations,
-        /** Applies a status.get answer through the run that owns the session. */
-        val applyStatus: (StatusDto) -> Unit,
-    )
 
     private sealed interface SessionEnd {
         data object Refused : SessionEnd

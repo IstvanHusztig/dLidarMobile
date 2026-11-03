@@ -98,7 +98,7 @@ fun WifiSetupScreen(
         }
     }
     state.selected?.let { network -> JoinDialog(network, onAction) }
-    state.joining?.let { network -> JoiningDialog(network) }
+    state.joining?.let { network -> JoiningDialog(network, onStop = { onAction(WifiSetupAction.StopWaiting) }) }
 }
 
 @Composable
@@ -207,8 +207,9 @@ internal fun JoinForm(network: WifiNetwork, onAction: (WifiSetupAction) -> Unit)
 }
 
 @Composable
-private fun JoiningDialog(network: WifiNetwork) {
+private fun JoiningDialog(network: WifiNetwork, onStop: () -> Unit) {
     AlertDialog(
+        // Back or a tap outside does not stop waiting by accident; the button does.
         onDismissRequest = {},
         title = { Text(network.ssid) },
         text = {
@@ -217,7 +218,7 @@ private fun JoiningDialog(network: WifiNetwork) {
                 Text(stringResource(R.string.wifi_joining))
             }
         },
-        confirmButton = {},
+        confirmButton = { TextButton(onClick = onStop) { Text(stringResource(R.string.wifi_stop_waiting)) } },
     )
 }
 

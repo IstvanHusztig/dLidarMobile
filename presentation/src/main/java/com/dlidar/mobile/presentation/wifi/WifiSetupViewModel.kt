@@ -65,6 +65,9 @@ sealed interface WifiSetupAction {
     }
 
     data object DismissOutcome : WifiSetupAction
+
+    /** Stops waiting for a join; it goes on on the scanner, whose status then tells. */
+    data object StopWaiting : WifiSetupAction
 }
 
 class WifiSetupViewModel(
@@ -76,6 +79,7 @@ class WifiSetupViewModel(
     private val mutableState = MutableStateFlow(WifiSetupUiState())
     val state: StateFlow<WifiSetupUiState> = mutableState.asStateFlow()
     private var scan: Job? = null
+    private var joinJob: Job? = null
 
     fun onAction(action: WifiSetupAction) {
         when (action) {
@@ -93,6 +97,7 @@ class WifiSetupViewModel(
             WifiSetupAction.CancelSelection -> mutableState.update { it.copy(selected = null) }
             is WifiSetupAction.Join -> join(action.password)
             WifiSetupAction.DismissOutcome -> mutableState.update { it.copy(outcome = null) }
+            WifiSetupAction.StopWaiting -> stopWaiting()
         }
     }
 
@@ -105,7 +110,7 @@ class WifiSetupViewModel(
             return
         }
         mutableState.update { it.copy(selected = null, joining = network, outcome = null) }
-        viewModelScope.launch {
+        joinJob = viewModelScope.launch {
             val outcome = when (val result = joinWifi(network, password)) {
                 is Outcome.Ok -> JoinOutcome.Finished(network, result.value)
                 is Outcome.Failed -> JoinOutcome.Rejected(network, result.error)
@@ -113,6 +118,13 @@ class WifiSetupViewModel(
             mutableState.update { it.copy(joining = null, outcome = outcome) }
             refreshStatus()
         }
+    }
+
+    private fun stopWaiting() {
+        val network = mutableState.value.joining ?: return
+        joinJob?.cancel()
+        mutableState.update { it.copy(joining = null, outcome = JoinOutcome.Finished(network, WifiJoinResult.Unknown)) }
+        refreshStatus()
     }
 
     private fun refreshStatus() {

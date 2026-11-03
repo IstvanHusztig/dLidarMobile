@@ -1,4 +1,4 @@
-package com.dlidar.mobile.data.scanner.wifi
+package com.dlidar.mobile.data.scanner.session
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.JsonObject
@@ -16,7 +16,8 @@ internal class PendingOperations {
     /** Call before the request is written. The deferred gets the whole event, or null when the session ended. */
     fun register(id: Int): CompletableDeferred<JsonObject?> {
         val deferred = CompletableDeferred<JsonObject?>()
-        waiting[id] = deferred
+        // Ids wrap; a request still waiting under the same id has long lost its result.
+        waiting.put(id, deferred)?.complete(null)
         if (closed) deferred.complete(null)
         return deferred
     }
@@ -24,8 +25,9 @@ internal class PendingOperations {
     /** Returns false when no request waits for [op] (logged by the caller, otherwise ignored). */
     fun complete(op: Int, event: JsonObject): Boolean = waiting.remove(op)?.complete(event) ?: false
 
+    /** Call when the requester stops waiting, for any reason. */
     fun forget(id: Int) {
-        waiting.remove(id)
+        waiting.remove(id)?.complete(null)
     }
 
     fun close() {

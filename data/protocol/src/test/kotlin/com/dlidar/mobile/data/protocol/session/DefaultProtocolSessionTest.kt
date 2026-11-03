@@ -247,6 +247,25 @@ class DefaultProtocolSessionTest {
     }
 
     @Test
+    fun `onSent gets the request id before the request is written`() = runTest {
+        val session = startSession()
+        var seen: Int? = null
+        var writtenWhenSeen = -1
+        val call = async {
+            session.call(ValueCommand, onSent = { id ->
+                seen = id
+                writtenWhenSeen = connection.pieces.size
+            })
+        }
+        runCurrent()
+
+        assertEquals(connection.lastId(), seen)
+        assertEquals(0, writtenWhenSeen)
+        connection.send("""{"id":${connection.lastId()},"ok":true,"result":{"value":1}}""")
+        assertEquals(CallResult.Success(1), call.await())
+    }
+
+    @Test
     fun `lines that are not protocol messages are ignored`() = runTest {
         val session = startSession()
         connection.send("echo anything")

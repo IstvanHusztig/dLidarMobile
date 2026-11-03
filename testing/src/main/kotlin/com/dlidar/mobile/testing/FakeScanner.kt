@@ -347,6 +347,15 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
         })
     }
 
+    /** dLidar restarts: the link drops, a running join is gone, and `last` is forgotten. */
+    fun restart() {
+        runningJoin = null
+        lastJoin = null
+        wifiState = "disconnected"
+        wifiSsid = null
+        dropLink()
+    }
+
     private fun wifiStatus() = buildJsonObject {
         put("state", if (wifiDevice == "unavailable") "unavailable" else wifiState)
         put("ssid", wifiSsid)

@@ -36,8 +36,10 @@ picks a network.
    being written.
 5. **Send.** `wifi.connect {"ssid", "security", "psk"}` (no `psk` for open networks) answers
    `{"accepted":true,"timeout_s":60}`. The `result` event with `"op": <request id>` carries the
-   outcome and always comes within `timeout_s`. `PendingOperations` waits `timeout_s` plus a
-   margin. Immediate errors: `busy` (another join runs, from any phone) → "try again shortly";
+   outcome and always comes within `timeout_s`. `ScannerWifiImpl` waits `timeout_s` plus 10 s
+   for it (`PendingOperations` matches it by `op`); one deadline of `timeout_s` plus 40 s covers
+   the whole join, including the recovery below. The user can stop waiting; the join goes on
+   on the scanner, and its status shows the outcome. Immediate errors: `busy` (another join runs, from any phone) → "try again shortly";
    `bad_request` (the app's checks and the scanner's disagree) → show the scanner's message.
    The app checks the SSID too: 1 to 32 bytes of UTF-8.
 6. **Result.** `ok:true` → connected; show the SSID and the IP address from the result (ip may
@@ -49,7 +51,9 @@ picks a network.
 7. **Recovery.** The Pi 5's radio is shared, so the BLE link may drop during the join (not
    measured yet). After a reconnect, or when the wait runs out, the app asks `wifi.status`:
    `last.result` `"pending"` → keep waiting; otherwise `last` gives the lost outcome (only for
-   the SSID the user sent; `last` is the newest join since dLidar started).
+   the SSID the user sent; `last` is the newest join since dLidar started). When the answer
+   itself was lost, the request may never have arrived: the app reads `last` before sending,
+   and an unchanged `last` that was never seen pending counts as unknown.
 8. **Status.** `wifi.status` → `state` `connected`, `connecting`, `disconnected` or
    `unavailable`, with `ssid` and `ip` (null when not connected). `unavailable` → "Wi-Fi is not
    available on the scanner", and Connect is not offered. Wi-Fi setup is offered only when

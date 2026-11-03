@@ -221,4 +221,62 @@ class WifiJoinTest {
         assertTrue(secret.toCharArray().all { it == '\u0000' })
         assertFalse("wifi.connect" in fake.commandNames)
     }
+
+    @Test
+    fun `busy and a lost link clear the password too`() = runTest {
+        fake.wifiJoinFinishes = false
+        val (_, wifi) = connected()
+        val first = async { wifi.join("Home", WifiSecurity.Wpa2Psk, password("secret123")) }
+        runCurrent()
+        val second = password("secret456")
+        assertEquals(Outcome.Failed(DomainError.Busy), wifi.join("Work", WifiSecurity.Wpa2Psk, second))
+        assertTrue(second.toCharArray().all { it == '\u0000' })
+        fake.finishWifiJoin()
+        runCurrent()
+        first.await()
+    }
+
+    @Test
+    fun `a scanner that restarted during the join leaves the result unknown`() = runTest {
+        fake.wifiJoinFinishes = false
+        val (_, wifi) = connected()
+        val join = async { wifi.join("Home", WifiSecurity.Wpa2Psk, password("secret123")) }
+        runCurrent()
+
+        fake.restart()
+        advanceTimeBy(1_100)
+        runCurrent()
+
+        assertEquals(Outcome.Ok(WifiJoinResult.Unknown), join.await())
+    }
+
+    @Test
+    fun `an answer lost before the scanner saw the request does not pass an old outcome off`() = runTest {
+        fake.wifiJoinOutcome = "wrong_password"
+        val (_, wifi) = connected()
+        assertEquals(Outcome.Ok(WifiJoinResult.WrongPassword), wifi.join("Home", WifiSecurity.Wpa2Psk, password("secret123")))
+
+        // The next request never reaches the scanner: its answer times out, last is unchanged.
+        fake.silentCommands += "wifi.connect"
+        val outcome = wifi.join("Home", WifiSecurity.Wpa2Psk, password("secret789"))
+
+        assertEquals(Outcome.Ok(WifiJoinResult.Unknown), outcome)
+    }
+
+    @Test
+    fun `cancelling a join releases its pending result and clears the password`() = runTest {
+        fake.wifiJoinFinishes = false
+        val (repository, wifi) = connected()
+        val secret = password("secret123")
+        val join = async { wifi.join("Home", WifiSecurity.Wpa2Psk, secret) }
+        runCurrent()
+
+        join.cancel()
+        runCurrent()
+
+        assertTrue(secret.toCharArray().all { it == '\u0000' })
+        val op = fake.requests.last { it["cmd"]?.jsonPrimitive?.content == "wifi.connect" }["id"]!!.jsonPrimitive.content.toInt()
+        assertFalse(repository.liveSessionSource.liveSession.value!!.operations.complete(op, JsonObject(emptyMap())))
+        fake.finishWifiJoin()
+    }
 }
