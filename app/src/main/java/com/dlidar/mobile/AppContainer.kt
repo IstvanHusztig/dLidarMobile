@@ -13,6 +13,8 @@ import com.dlidar.mobile.domain.usecase.DismissWarning
 import com.dlidar.mobile.domain.usecase.FindScanners
 import com.dlidar.mobile.domain.usecase.ObserveScanner
 import com.dlidar.mobile.domain.usecase.RefreshStatus
+import com.dlidar.mobile.domain.usecase.StartRecording
+import com.dlidar.mobile.domain.usecase.StopRecording
 import com.dlidar.mobile.infra.ble.AndroidBleTransport
 import com.dlidar.mobile.infra.ble.BleScannerFinder
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +47,8 @@ class AppContainer(context: Context) {
     val observeScanner = ObserveScanner(repository)
     val refreshStatus = RefreshStatus(repository)
     val dismissWarning = DismissWarning(repository)
+    val startRecording = StartRecording(repository)
+    val stopRecording = StopRecording(repository)
 
     init {
         DebugTools.start(this)

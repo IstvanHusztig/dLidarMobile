@@ -61,8 +61,9 @@ apply `kotlin-android`), Kotlin 2.4, compileSdk 37, minSdk 26, Java 17 bytecode.
 
 ### Entities (immutable `data class` / `sealed interface`)
 - `ScannerSnapshot`: the whole picture the UI shows. It holds `target`, `connection`,
-  `compatibility`, `status`, `freeBytes`, `info`, `warnings` and `lastSummary`. Values stay after
-  the link drops; `connection` says whether they are live.
+  `compatibility`, `canControlRecording` (this connection's `hello` listed `recording.start` and
+  `recording.stop`), `status`, `freeBytes`, `info`, `warnings` and `lastSummary`. Values stay
+  after the link drops; `connection` says whether they are live.
 - `ConnectionState`: `Disconnected`, `Connecting(attempt)`, `Connected`,
   `WaitingToRetry(nextAttempt, retryInMillis)`, `WaitingForBluetooth` (reconnects once Bluetooth
   is on), `Refused(reason)` (`too_many_clients`: another phone is connected) and
@@ -81,6 +82,10 @@ apply `kotlin-android`), Kotlin 2.4, compileSdk 37, minSdk 26, Java 17 bytecode.
   scanner sends is a protocol message, for example its echo test service),
   `UpdateAppRequired(serverProtocol)` and `UpdateScannerRequired(serverProtocol)`.
   `allowsRequests` is false for the last three: only `hello` is sent.
+- `RecordingCommandResult`: `accepted` and `seenState` (the state the command found, not the
+  state after it). `accepted:false` means nothing to do; it is not an error. `RecordingControl`
+  says which command fits a state (start from idle or error, stop from preparing or recording);
+  the scanner decides, this only guides the UI.
 - `ScannerCandidate`: `id` (an opaque handle), `name`, `rssi`.
 - `Discovery`: `Found(candidates)` or `Failed(problem)`.
 
@@ -96,6 +101,8 @@ interface ScannerRepository {
     fun disconnect()                                // user intent; stops reconnecting
     suspend fun refreshStatus(): Outcome<Unit>      // request/response, so it returns an Outcome
     fun dismissWarning(warningId: Long)             // local state only; cannot fail
+    suspend fun startRecording(): Outcome<RecordingCommandResult>  // busy while finalizing
+    suspend fun stopRecording(): Outcome<RecordingCommandResult>
 }
 fun interface Clock { fun now(): Instant }
 ```
@@ -104,10 +111,9 @@ fun interface Clock { fun now(): Instant }
 
 ### Use cases (one class each, an `operator fun invoke`, no Android, no I/O details)
 `FindScanners`, `ConnectScanner`, `DisconnectScanner`, `ObserveScanner`, `RefreshStatus`,
-`DismissWarning`. They are thin today and share one file. Rules that belong to a use case go
-here, not into ViewModels or repositories.
-Later: `StartRecording`, `StopRecording`, `PairScanner`, `ScanWifiNetworks`, `ConfigureWifi`,
-`ReadLog`.
+`DismissWarning`, `StartRecording`, `StopRecording`. They are thin today and share one file.
+Rules that belong to a use case go here, not into ViewModels or repositories.
+Later: `ScanWifiNetworks`, `ConfigureWifi`, `ReadLog`.
 
 ### Error model
 ```kotlin
@@ -115,6 +121,7 @@ sealed interface Outcome<out T> { Ok(value); Failed(error: DomainError) }
 sealed interface DomainError {
     NotConnected; LinkLost; Timeout; RequestTooLarge; Busy; InvalidResponse
     IncompatibleProtocol    // no common version, or the scanner does not answer: nothing is sent
+    NotSupported            // hello did not list the command: nothing is sent
     Remote(code, message)   // ok:false; unknown codes land here too, as generic errors
 }
 ```
@@ -197,7 +204,7 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
 
 | Class | Responsibility |
 |---|---|
-| `ScannerRepositoryImpl : ScannerRepository` | Orchestrates the connection lifecycle. Each `connect()` starts a `Run`, which connects, runs sessions and reconnects. A run that is no longer current cannot change the snapshot, and a new run cancels every unfinished run at once and waits for all their cleanups. The session goes live for `refreshStatus()` only after `hello` allowed further requests. A session that ended with its link still up (a broken stream) releases the link before the backoff. When the link drops, it lets the reader finish (up to 1 s), so a `too_many_clients` sent just before the drop still counts as a refusal. Backoff starts over only after a link on which the scanner answered. While `compatibility.allowsRequests` is false, `refreshStatus()` fails with `IncompatibleProtocol`. `status.get` brings the scanner's warning list and last summary; warnings the user dismissed stay hidden until the scanner's list drops them or a `warning` event raises them again. |
+| `ScannerRepositoryImpl : ScannerRepository` | Orchestrates the connection lifecycle. Each `connect()` starts a `Run`, which connects, runs sessions and reconnects. A run that is no longer current cannot change the snapshot, and a new run cancels every unfinished run at once and waits for all their cleanups. The session goes live for `refreshStatus()` only after `hello` allowed further requests. A session that ended with its link still up (a broken stream) releases the link before the backoff. When the link drops, it lets the reader finish (up to 1 s), so a `too_many_clients` sent just before the drop still counts as a refusal. Backoff starts over only after a link on which the scanner answered. While `compatibility.allowsRequests` is false, `refreshStatus()` and the recording commands fail with `IncompatibleProtocol`; the recording commands fail with `NotSupported` when `hello` did not list them, and nothing is sent. Their answer comes at once; no `result` event follows, and the state events carry the rest. `status.get` brings the scanner's warning list and last summary; warnings the user dismissed stay hidden until the scanner's list drops them or a `warning` event raises them again. |
 | `SessionHandshake` | Every link up: `hello` first, because its answer decides compatibility, then `status.get` (through the refresher) and `info.get` together. If `hello` returns `unknown_command`, or times out after the scanner sent any protocol message, compatibility is `Unknown` and the rest still goes out, because `hello` is optional. If it times out and nothing the scanner sent was a protocol message, compatibility is `NotAnswering` and only `hello` is repeated, every 30 s (app choice), so a scanner running its echo service is not flooded. On `unsupported_version` or a protocol other than 1, nothing more is sent. |
 | `SessionSignalHandler` | Routes a session's signals: events become inputs through the decoders, gaps a refresh; `too_many_clients` and `StreamBroken` end the session. |
 | `CallRetry` | *App policy:* `status.get` and `info.get` must get through on every connection, so a timeout or `busy` is retried after 1, 2, 4, 8 s. Other failures are not, because the answer would not change. |
@@ -334,8 +341,10 @@ Send:
 ## 11. Planned extensions (shape only, not built yet)
 
 - **Results that arrive later (`op`):** `PendingOperations` in `:data:scanner` links an
-  `{"accepted":true}` response to the later event that carries `"op": <id>`
+  `{"accepted":true}` response to the later `result` event that carries `"op": <id>`
   (`ProtocolEvent.raw` keeps that field reachable), and returns the result to the use case.
+  `wifi.connect` will use it; `recording.start` and `recording.stop` do not (their answer is
+  final).
 - **Pairing and bonds:** see [docs/design/pairing.md](docs/design/pairing.md).
 - **Wi-Fi setup:** see [docs/design/wifi-setup.md](docs/design/wifi-setup.md).
 - **`log.get` paging:** a `LogRepository` port with a paged `Flow`.

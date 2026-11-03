@@ -3,9 +3,11 @@ package com.dlidar.mobile.data.scanner.command
 import com.dlidar.mobile.data.protocol.command.ProtocolCommand
 import com.dlidar.mobile.data.scanner.dto.HelloInfo
 import com.dlidar.mobile.data.scanner.dto.InfoDto
+import com.dlidar.mobile.data.scanner.dto.RecordingCommandDto
 import com.dlidar.mobile.data.scanner.dto.ScannerJson
 import com.dlidar.mobile.data.scanner.dto.StatusDto
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
@@ -20,7 +22,7 @@ internal abstract class NoArgsCommand<R>(
 }
 
 /**
- * hello is read leniently: only `protocol` and `limits` matter, and a hello whose other fields
+ * hello is read leniently: only `protocol`, `limits` and `commands` matter, and a hello whose other fields
  * changed shape must still reveal a protocol mismatch. It never fails to decode.
  */
 internal object HelloCommand : ProtocolCommand<HelloInfo> {
@@ -32,6 +34,9 @@ internal object HelloCommand : ProtocolCommand<HelloInfo> {
             protocol = result.int("protocol"),
             maxRequestBytes = limits?.int("max_request_bytes"),
             maxMessageBytes = limits?.int("max_message_bytes"),
+            commands = (result["commands"] as? JsonArray)
+                ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+                ?.toSet(),
         )
     }
 
@@ -41,3 +46,10 @@ internal object HelloCommand : ProtocolCommand<HelloInfo> {
 internal object StatusGetCommand : NoArgsCommand<StatusDto>("status.get", StatusDto.serializer())
 
 internal object InfoGetCommand : NoArgsCommand<InfoDto>("info.get", InfoDto.serializer())
+
+internal object RecordingStartCommand : NoArgsCommand<RecordingCommandDto>("recording.start", RecordingCommandDto.serializer())
+
+internal object RecordingStopCommand : NoArgsCommand<RecordingCommandDto>("recording.stop", RecordingCommandDto.serializer())
+
+/** Commands a scanner must list in hello before the app offers recording control. */
+internal val RECORDING_COMMANDS = setOf(RecordingStartCommand.name, RecordingStopCommand.name)

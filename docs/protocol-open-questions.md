@@ -247,6 +247,8 @@ spec (docs/phone-protocol.md on the scanner side), *provisional* ones may still 
 
    **Scanner answer (2026-11-02):** Provisional: `accepted:false` = nothing to do (start while recording, stop while idle); `busy` = not now (start while still saving).
 
+   **Scanner answer (2026-11-03):** Binding. No arguments. The answer comes at once with the state the command saw: start from idle or error → `accepted:true`, then state events (preparing → recording, or error with a `sensor_failed` warning); start while preparing or recording → `accepted:false`; start while finalizing → error `busy`. Stop while preparing → `accepted:true`, the start-up is abandoned, no files, then idle; stop while recording → finalizing, then idle; stop while idle, error or finalizing → `accepted:false`. No `result` event follows. `hello` lists both commands; an older scanner answers `unknown_command`. Any bonded phone may send them; a stop from the phone and a button press at once save the recording once.
+
 33. **Pairing:** when an unbonded phone writes a command that needs a bond, does it get an ATT
     error (insufficient authentication or encryption) or a protocol error? Do reads stay
     allowed without a bond? How many bonds does the scanner keep, and how are they cleared?

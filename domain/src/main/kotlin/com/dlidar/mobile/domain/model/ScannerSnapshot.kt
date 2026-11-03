@@ -8,6 +8,8 @@ data class ScannerSnapshot(
     val target: ScannerCandidate? = null,
     val connection: ConnectionState = ConnectionState.Disconnected,
     val compatibility: Compatibility = Compatibility.Unknown,
+    /** True when this connection's hello listed recording.start and recording.stop. */
+    val canControlRecording: Boolean = false,
     val status: ScannerStatus? = null,
     /** Free storage in bytes; null when the scanner does not know it or has not said yet. */
     val freeBytes: Long? = null,

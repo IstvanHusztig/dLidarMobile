@@ -14,6 +14,16 @@ internal data class HelloInfo(
     val protocol: Int?,
     val maxRequestBytes: Int?,
     val maxMessageBytes: Int?,
+    /** The commands hello lists; null when it lists none (or hello failed). */
+    val commands: Set<String>? = null,
+)
+
+/** The answer to recording.start and recording.stop. */
+@Serializable
+internal data class RecordingCommandDto(
+    val accepted: Boolean,
+    /** The state the command saw, not the state after it. */
+    val state: String,
 )
 
 @Serializable

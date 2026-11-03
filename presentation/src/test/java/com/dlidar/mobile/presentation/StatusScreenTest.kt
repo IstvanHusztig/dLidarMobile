@@ -4,21 +4,28 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.dlidar.mobile.domain.model.Compatibility
 import com.dlidar.mobile.domain.model.ConnectionState
 import com.dlidar.mobile.domain.model.DeviceInfo
 import com.dlidar.mobile.domain.model.RecordingState
 import com.dlidar.mobile.domain.model.RecordingSummary
+import com.dlidar.mobile.domain.model.ScannerSnapshot
 import com.dlidar.mobile.domain.model.ScannerStatus
 import com.dlidar.mobile.domain.model.SensorType
 import com.dlidar.mobile.domain.model.Warning
 import com.dlidar.mobile.domain.model.WarningKind
+import com.dlidar.mobile.domain.result.DomainError
 import com.dlidar.mobile.presentation.status.StatusAction
 import com.dlidar.mobile.presentation.status.StatusScreen
 import com.dlidar.mobile.presentation.status.StatusUiState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -133,5 +140,48 @@ class StatusScreenTest {
         offered = true
         compose.onNodeWithText("Log").performClick()
         assertEquals(1, opened)
+    }
+
+    @Test
+    fun `start and stop are shown when offered and send their actions`() {
+        val actions = mutableListOf<StatusAction>()
+        compose.setContent { StatusScreen(live.copy(showRecordingControls = true, canStop = true), onAction = { actions += it }) }
+
+        compose.onNodeWithText("Start recording").assertIsNotEnabled()
+        compose.onNodeWithText("Stop recording").assertIsEnabled().performClick()
+        assertEquals(listOf<StatusAction>(StatusAction.StopRecording), actions)
+    }
+
+    @Test
+    fun `no recording buttons when not offered`() {
+        compose.setContent { StatusScreen(live, onAction = {}) }
+        compose.onNodeWithText("Start recording").assertDoesNotExist()
+    }
+
+    @Test
+    fun `saving and busy are explained`() {
+        val failure = StatusUiState.CommandFailure(StatusUiState.RecordingCommand.Start, DomainError.Busy)
+        compose.setContent { StatusScreen(live.copy(showRecordingControls = true, saving = true, commandFailure = failure), onAction = {}) }
+        compose.onNodeWithText("The last recording is being saved", substring = true).assertExists()
+        compose.onNodeWithText("Try again when the state is Idle.", substring = true).assertExists()
+    }
+
+    @Test
+    fun `controls follow the snapshot`() {
+        val snapshot = ScannerSnapshot(
+            connection = ConnectionState.Connected,
+            compatibility = Compatibility.Compatible,
+            canControlRecording = true,
+            status = ScannerStatus(RecordingState.Idle, 0, 0, true, ""),
+        )
+        StatusUiState.from(snapshot).let {
+            assertTrue(it.showRecordingControls)
+            assertTrue(it.canStart)
+            assertFalse(it.canStop)
+        }
+        assertFalse(StatusUiState.from(snapshot, sending = true).canStart)
+        assertFalse(StatusUiState.from(snapshot.copy(status = null)).canStart)
+        assertFalse(StatusUiState.from(snapshot.copy(connection = ConnectionState.Disconnected)).showRecordingControls)
+        assertFalse(StatusUiState.from(snapshot.copy(compatibility = Compatibility.UpdateAppRequired(2))).showRecordingControls)
     }
 }

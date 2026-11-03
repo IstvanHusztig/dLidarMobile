@@ -11,7 +11,10 @@ import com.dlidar.mobile.domain.usecase.DisconnectScanner
 import com.dlidar.mobile.domain.usecase.DismissWarning
 import com.dlidar.mobile.domain.usecase.ObserveScanner
 import com.dlidar.mobile.domain.usecase.RefreshStatus
+import com.dlidar.mobile.domain.usecase.StartRecording
+import com.dlidar.mobile.domain.usecase.StopRecording
 import com.dlidar.mobile.presentation.status.StatusAction
+import com.dlidar.mobile.presentation.status.StatusUiState
 import com.dlidar.mobile.presentation.status.StatusViewModel
 import com.dlidar.mobile.testing.FakeScanner
 import com.dlidar.mobile.testing.FakeStatus
@@ -53,6 +56,8 @@ class StatusViewModelTest {
             ConnectScanner(repository),
             DisconnectScanner(repository),
             DismissWarning(repository),
+            StartRecording(repository),
+            StopRecording(repository),
         )
         repository.connect(ScannerCandidate("AA:BB", "dLidar", -50))
         runCurrent()
@@ -129,6 +134,99 @@ class StatusViewModelTest {
         assertEquals(ConnectionState.Disconnected, viewModel.state.value.connection)
         assertTrue(viewModel.state.value.canRetry)
         assertFalse(fake.isConnected)
+    }
+
+    @Test
+    fun `start and stop follow the recording state`() = runTest(dispatcher) {
+        fake.recordingAdvances = false
+        val (viewModel, _) = viewModel()
+        viewModel.state.value.let {
+            assertTrue(it.showRecordingControls)
+            assertTrue(it.canStart)
+            assertFalse(it.canStop)
+        }
+
+        viewModel.onAction(StatusAction.StartRecording)
+        runCurrent()
+        assertEquals(RecordingState.Preparing, viewModel.state.value.status?.state)
+        assertFalse(viewModel.state.value.canStart)
+        assertTrue(viewModel.state.value.canStop)
+
+        fake.changeStatus(fake.status.copy(state = "recording"))
+        runCurrent()
+        viewModel.onAction(StatusAction.StopRecording)
+        runCurrent()
+        viewModel.state.value.let {
+            assertEquals(RecordingState.Finalizing, it.status?.state)
+            assertTrue(it.saving)
+            assertFalse(it.canStart)
+            assertFalse(it.canStop)
+        }
+        assertEquals(listOf("recording.start", "recording.stop"), fake.commandNames.filter { it.startsWith("recording.") })
+        assertEquals(emptyList<String>(), fake.violations)
+    }
+
+    @Test
+    fun `busy is shown, and cleared when the state moves on`() = runTest(dispatcher) {
+        val (viewModel, _) = viewModel()
+        // The tap and the scanner's switch to finalizing cross: Start was still on.
+        viewModel.onAction(StatusAction.StartRecording)
+        fake.changeStatus(fake.status.copy(state = "finalizing"))
+        runCurrent()
+        assertTrue(viewModel.state.value.saving)
+        assertEquals(
+            StatusUiState.CommandFailure(StatusUiState.RecordingCommand.Start, DomainError.Busy),
+            viewModel.state.value.commandFailure,
+        )
+
+        fake.changeStatus(fake.status.copy(state = "idle"))
+        runCurrent()
+        assertEquals(null, viewModel.state.value.commandFailure)
+        assertTrue(viewModel.state.value.canStart)
+    }
+
+    @Test
+    fun `a second tap while a command is on its way sends nothing`() = runTest(dispatcher) {
+        val (viewModel, _) = viewModel()
+        fake.silentCommands += "recording.start"
+
+        viewModel.onAction(StatusAction.StartRecording)
+        runCurrent()
+        assertFalse(viewModel.state.value.canStart)
+        viewModel.onAction(StatusAction.StartRecording)
+        runCurrent()
+        assertEquals(1, fake.commandNames.count { it == "recording.start" })
+
+        advanceTimeBy(5_100)
+        runCurrent()
+        assertEquals(DomainError.Timeout, viewModel.state.value.commandFailure?.error)
+        assertTrue(viewModel.state.value.canStart)
+    }
+
+    @Test
+    fun `a command lost with the link leaves no notice on the new connection`() = runTest(dispatcher) {
+        val (viewModel, _) = viewModel()
+        fake.silentCommands += "recording.start"
+        viewModel.onAction(StatusAction.StartRecording)
+        runCurrent()
+
+        fake.dropLink()
+        runCurrent()
+        advanceTimeBy(1_100)
+        runCurrent()
+
+        assertTrue(viewModel.state.value.isLive)
+        assertEquals(null, viewModel.state.value.commandFailure)
+        assertTrue(viewModel.state.value.canStart)
+    }
+
+    @Test
+    fun `an older scanner shows no recording buttons`() = runTest(dispatcher) {
+        fake.hello = FakeScanner.defaultHello(commands = FakeScanner.OLD_COMMANDS)
+        val (viewModel, _) = viewModel()
+        assertTrue(viewModel.state.value.isLive)
+        assertFalse(viewModel.state.value.showRecordingControls)
+        assertFalse(viewModel.state.value.canStart)
     }
 
     @Test

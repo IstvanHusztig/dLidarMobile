@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,6 +36,7 @@ import com.dlidar.mobile.domain.model.ScannerStatus
 import com.dlidar.mobile.domain.model.SensorType
 import com.dlidar.mobile.domain.model.Warning
 import com.dlidar.mobile.domain.model.WarningKind
+import com.dlidar.mobile.domain.result.DomainError
 import com.dlidar.mobile.presentation.R
 import com.dlidar.mobile.presentation.format.Formatters
 import com.dlidar.mobile.presentation.theme.DLidarTheme
@@ -73,6 +76,7 @@ fun StatusScreen(
             if (state.updateScannerRequired) item { Notice(stringResource(R.string.update_scanner), MaterialTheme.colorScheme.errorContainer) }
             if (state.notAnswering) item { Notice(stringResource(R.string.not_answering), MaterialTheme.colorScheme.errorContainer) }
             if (state.refreshError != null) item { Notice(stringResource(R.string.refresh_failed), MaterialTheme.colorScheme.errorContainer) }
+            if (state.showRecordingControls) item { RecordingControls(state, onAction) }
             item { RecordingCard(state.status, state.freeBytes, state.isLive) }
             if (state.warnings.isNotEmpty()) {
                 item { SectionTitle(stringResource(R.string.section_warnings)) }
@@ -116,6 +120,39 @@ private fun ConnectionBanner(state: StatusUiState, onAction: (StatusAction) -> U
             }
         }
     }
+}
+
+@Composable
+private fun RecordingControls(state: StatusUiState, onAction: (StatusAction) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { onAction(StatusAction.StartRecording) },
+                enabled = state.canStart,
+                modifier = Modifier.weight(1f),
+            ) { Text(stringResource(R.string.action_start)) }
+            Button(
+                onClick = { onAction(StatusAction.StopRecording) },
+                enabled = state.canStop,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+                modifier = Modifier.weight(1f),
+            ) { Text(stringResource(R.string.action_stop)) }
+        }
+        if (state.saving) Text(stringResource(R.string.recording_saving), style = MaterialTheme.typography.bodySmall)
+        state.commandFailure?.let { failure ->
+            Notice(commandFailureText(failure), MaterialTheme.colorScheme.errorContainer)
+        }
+    }
+}
+
+@Composable
+private fun commandFailureText(failure: StatusUiState.CommandFailure): String = when {
+    failure.error == DomainError.Busy -> stringResource(R.string.recording_busy)
+    failure.command == StatusUiState.RecordingCommand.Start -> stringResource(R.string.recording_start_failed)
+    else -> stringResource(R.string.recording_stop_failed)
 }
 
 @Composable
@@ -243,6 +280,8 @@ private fun StatusScreenPreview() {
                 scannerName = "dLidar",
                 connection = ConnectionState.Connected,
                 isLive = true,
+                showRecordingControls = true,
+                canStop = true,
                 status = ScannerStatus(RecordingState.Recording, 12, 2_400_000, true, "/media/usb/scans"),
                 freeBytes = 63_200_000_000,
                 info = DeviceInfo("1.0.0", SensorType.UnitreeL2, "L2", 3, 1),

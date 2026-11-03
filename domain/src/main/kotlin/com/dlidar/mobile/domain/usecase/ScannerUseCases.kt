@@ -1,6 +1,7 @@
 package com.dlidar.mobile.domain.usecase
 
 import com.dlidar.mobile.domain.model.Discovery
+import com.dlidar.mobile.domain.model.RecordingCommandResult
 import com.dlidar.mobile.domain.model.ScannerCandidate
 import com.dlidar.mobile.domain.model.ScannerSnapshot
 import com.dlidar.mobile.domain.port.ScannerFinder
@@ -30,6 +31,14 @@ class ObserveScanner(private val repository: ScannerRepository) {
 
 class RefreshStatus(private val repository: ScannerRepository) {
     suspend operator fun invoke(): Outcome<Unit> = repository.refreshStatus()
+}
+
+class StartRecording(private val repository: ScannerRepository) {
+    suspend operator fun invoke(): Outcome<RecordingCommandResult> = repository.startRecording()
+}
+
+class StopRecording(private val repository: ScannerRepository) {
+    suspend operator fun invoke(): Outcome<RecordingCommandResult> = repository.stopRecording()
 }
 
 class DismissWarning(private val repository: ScannerRepository) {

@@ -1,9 +1,11 @@
 package com.dlidar.mobile.presentation
 
 import com.dlidar.mobile.domain.model.Discovery
+import com.dlidar.mobile.domain.model.RecordingCommandResult
 import com.dlidar.mobile.domain.model.ScannerCandidate
 import com.dlidar.mobile.domain.model.ScannerSnapshot
 import com.dlidar.mobile.domain.port.ScannerRepository
+import com.dlidar.mobile.domain.result.DomainError
 import com.dlidar.mobile.domain.result.Outcome
 import com.dlidar.mobile.domain.usecase.ConnectScanner
 import com.dlidar.mobile.domain.usecase.FindScanners
@@ -58,6 +60,8 @@ class FormattersAndConnectTest {
         override fun disconnect() = Unit
         override suspend fun refreshStatus(): Outcome<Unit> = Outcome.Ok(Unit)
         override fun dismissWarning(warningId: Long) = Unit
+        override suspend fun startRecording(): Outcome<RecordingCommandResult> = Outcome.Failed(DomainError.NotSupported)
+        override suspend fun stopRecording(): Outcome<RecordingCommandResult> = Outcome.Failed(DomainError.NotSupported)
     }
 
     private val candidate = ScannerCandidate("AA:BB", "dLidar", -40)

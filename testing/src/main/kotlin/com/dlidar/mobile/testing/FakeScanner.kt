@@ -29,8 +29,9 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Plays the scanner's side of the link, following protocol v1: it reassembles written pieces,
- * answers hello, status.get (with the recording's warnings and the last summary) and info.get,
- * numbers events from 1 per connection, and splits
+ * answers hello, status.get (with the recording's warnings and the last summary), info.get,
+ * recording.start and recording.stop (only when hello lists them, as an older scanner answers
+ * unknown_command), numbers events from 1 per connection, and splits
  * everything it sends into notifications of at most MTU-3 bytes, each message starting in a
  * fresh notification.
  *
@@ -78,6 +79,12 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
 
     /** True answers every line like the scanner's echo test service: `echo <line>`. */
     var echoMode = false
+
+    /**
+     * True: an accepted start or stop runs through the states at once (preparing → recording,
+     * finalizing → idle). False leaves it in preparing or finalizing for the test to move on.
+     */
+    var recordingAdvances = true
 
     /** Every piece written, in order, across connections. */
     val writtenPieces: MutableList<ByteArray> = CopyOnWriteArrayList()
@@ -232,8 +239,49 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
             "hello" -> hello?.let { respond(id, it) } ?: respondError(id, "unknown_command", "unknown command")
             "status.get" -> respond(id, statusResult())
             "info.get" -> respond(id, info)
+            "recording.start" -> if (lists(cmd)) recordingStart(id) else respondError(id, "unknown_command", "unknown command")
+            "recording.stop" -> if (lists(cmd)) recordingStop(id) else respondError(id, "unknown_command", "unknown command")
             else -> respondError(id, "unknown_command", "unknown command")
         }
+    }
+
+    private fun lists(cmd: String): Boolean =
+        (hello?.get("commands") as? JsonArray)?.any { (it as? JsonPrimitive)?.content == cmd } == true
+
+    /** Spec: the answer carries the state the command saw; the state events follow. */
+    private fun recordingStart(id: JsonElement) {
+        val seen = status.state
+        when (seen) {
+            "finalizing" -> respondError(id, "busy", "the last recording is still being saved; try again when it is idle")
+            "idle", "error" -> {
+                respond(id, recordingAnswer(accepted = true, seen))
+                changeStatus(status.copy(state = "preparing", chunks = 0, points = 0))
+                if (recordingAdvances) changeStatus(status.copy(state = "recording"))
+            }
+            else -> respond(id, recordingAnswer(accepted = false, seen))
+        }
+    }
+
+    /** Spec: from preparing the start-up is abandoned (no files); from recording it is saved. */
+    private fun recordingStop(id: JsonElement) {
+        val seen = status.state
+        when (seen) {
+            "preparing" -> {
+                respond(id, recordingAnswer(accepted = true, seen))
+                changeStatus(status.copy(state = "idle"))
+            }
+            "recording" -> {
+                respond(id, recordingAnswer(accepted = true, seen))
+                changeStatus(status.copy(state = "finalizing"))
+                if (recordingAdvances) changeStatus(status.copy(state = "idle", lastOk = true))
+            }
+            else -> respond(id, recordingAnswer(accepted = false, seen))
+        }
+    }
+
+    private fun recordingAnswer(accepted: Boolean, seen: String) = buildJsonObject {
+        put("accepted", accepted)
+        put("state", seen)
     }
 
     private fun statusResult() = JsonObject(
@@ -301,14 +349,15 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
         /** Spec: status.get lists the 16 newest warnings. */
         const val MAX_STATUS_WARNINGS = 16
 
-        fun defaultHello(protocol: Int = 1): JsonObject = buildJsonObject {
+        val CURRENT_COMMANDS = listOf("hello", "status.get", "info.get", "recording.start", "recording.stop")
+
+        /** The commands of a scanner from before recording control. */
+        val OLD_COMMANDS = listOf("hello", "status.get", "info.get")
+
+        fun defaultHello(protocol: Int = 1, commands: List<String> = CURRENT_COMMANDS): JsonObject = buildJsonObject {
             put("protocol", protocol)
             put("server", "dLidar")
-            put("commands", buildJsonArray {
-                add(JsonPrimitive("hello"))
-                add(JsonPrimitive("status.get"))
-                add(JsonPrimitive("info.get"))
-            })
+            put("commands", buildJsonArray { commands.forEach { add(JsonPrimitive(it)) } })
             put("events", buildJsonArray {
                 listOf("state", "warning", "progress", "summary").forEach { add(JsonPrimitive(it)) }
             })

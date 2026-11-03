@@ -143,6 +143,8 @@ private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onT
             container.connectScanner,
             container.disconnectScanner,
             container.dismissWarning,
+            container.startRecording,
+            container.stopRecording,
         )
     }
     val state by viewModel.state.collectAsStateWithLifecycle()

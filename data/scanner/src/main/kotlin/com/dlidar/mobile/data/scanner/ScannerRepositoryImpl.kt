@@ -9,7 +9,11 @@ import com.dlidar.mobile.data.protocol.transport.ByteTransport
 import com.dlidar.mobile.data.protocol.transport.ConnectResult
 import com.dlidar.mobile.data.protocol.transport.DownReason
 import com.dlidar.mobile.data.protocol.transport.LinkState
+import com.dlidar.mobile.data.protocol.command.ProtocolCommand
+import com.dlidar.mobile.data.scanner.command.RecordingStartCommand
+import com.dlidar.mobile.data.scanner.command.RecordingStopCommand
 import com.dlidar.mobile.data.scanner.command.StatusGetCommand
+import com.dlidar.mobile.data.scanner.dto.RecordingCommandDto
 import com.dlidar.mobile.data.scanner.dto.StatusDto
 import com.dlidar.mobile.data.scanner.event.ScannerEventDecoders
 import com.dlidar.mobile.data.scanner.session.SessionHandshake
@@ -17,6 +21,7 @@ import com.dlidar.mobile.data.scanner.session.SessionSignalHandler
 import com.dlidar.mobile.data.scanner.session.SessionStop
 import com.dlidar.mobile.domain.model.Compatibility
 import com.dlidar.mobile.domain.model.ConnectionState
+import com.dlidar.mobile.domain.model.RecordingCommandResult
 import com.dlidar.mobile.domain.model.RecordingState
 import com.dlidar.mobile.domain.model.ScannerCandidate
 import com.dlidar.mobile.domain.model.ScannerSnapshot
@@ -122,6 +127,21 @@ class ScannerRepositoryImpl(
         val active = live ?: return Outcome.Failed(DomainError.NotConnected)
         return when (val result = active.session.call(StatusGetCommand, active.run::applyStatus)) {
             is CallResult.Success -> Outcome.Ok(Unit)
+            is CallResult.Failure -> Outcome.Failed(ProtocolMappers.error(result.failure))
+        }
+    }
+
+    override suspend fun startRecording(): Outcome<RecordingCommandResult> = recordingCommand(RecordingStartCommand)
+
+    override suspend fun stopRecording(): Outcome<RecordingCommandResult> = recordingCommand(RecordingStopCommand)
+
+    /** Sends a start or stop. The answer comes at once; the state events carry the rest. */
+    private suspend fun recordingCommand(command: ProtocolCommand<RecordingCommandDto>): Outcome<RecordingCommandResult> {
+        if (!state.value.compatibility.allowsRequests) return Outcome.Failed(DomainError.IncompatibleProtocol)
+        val active = live ?: return Outcome.Failed(DomainError.NotConnected)
+        if (!state.value.canControlRecording) return Outcome.Failed(DomainError.NotSupported)
+        return when (val result = active.session.call(command)) {
+            is CallResult.Success -> Outcome.Ok(ProtocolMappers.recordingCommand(result.value))
             is CallResult.Failure -> Outcome.Failed(ProtocolMappers.error(result.failure))
         }
     }
@@ -258,6 +278,7 @@ class ScannerRepositoryImpl(
             session = sessionFactory.create(connection, handler, this)
             try {
                 record(ScannerInput.CompatibilityResolved(Compatibility.Unknown))
+                record(ScannerInput.RecordingControlKnown(false))
                 record(ScannerInput.ConnectionChanged(ConnectionState.Connected))
                 session.start()
                 val goLive: () -> Unit = { synchronized(lock) { if (current === this@Run) live = LiveSession(this@Run, session) } }

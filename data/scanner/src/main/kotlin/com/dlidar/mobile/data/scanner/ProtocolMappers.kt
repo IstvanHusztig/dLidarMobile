@@ -3,10 +3,12 @@ package com.dlidar.mobile.data.scanner
 import com.dlidar.mobile.data.protocol.session.CallFailure
 import com.dlidar.mobile.data.protocol.codec.ErrorCode
 import com.dlidar.mobile.data.scanner.dto.InfoDto
+import com.dlidar.mobile.data.scanner.dto.RecordingCommandDto
 import com.dlidar.mobile.data.scanner.dto.StateEventDto
 import com.dlidar.mobile.data.scanner.dto.StatusDto
 import com.dlidar.mobile.data.scanner.dto.SummaryDto
 import com.dlidar.mobile.domain.model.DeviceInfo
+import com.dlidar.mobile.domain.model.RecordingCommandResult
 import com.dlidar.mobile.domain.model.RecordingState
 import com.dlidar.mobile.domain.model.RecordingSummary
 import com.dlidar.mobile.domain.model.ScannerStatus
@@ -49,6 +51,8 @@ internal object ProtocolMappers {
     fun status(dto: StateEventDto) = ScannerStatus(recordingState(dto.state), dto.chunks, dto.points, dto.lastOk, dto.location)
 
     fun info(dto: InfoDto) = DeviceInfo(dto.version, sensor(dto.sensor), dto.sensorModel, dto.recordingFormat, dto.protocol)
+
+    fun recordingCommand(dto: RecordingCommandDto) = RecordingCommandResult(dto.accepted, recordingState(dto.state))
 
     fun summary(dto: SummaryDto, receivedAt: Instant) =
         RecordingSummary(dto.imuMode, dto.decision, dto.imuIn, dto.imuOut, dto.lostSamples, receivedAt)
