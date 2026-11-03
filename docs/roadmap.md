@@ -8,9 +8,9 @@ Each milestone names the scanner-side answers it needs (numbers refer to
 | # | Milestone | Status |
 |---|-----------|--------|
 | 1 | BLE link, protocol v1, status screen | Done; link verified on device (echo service) |
-| 2 | Real-server bring-up | Runs against the real server on the phone; field tests of reconnect still open |
-| 3 | Pairing and bonding | Bond before subscribing (one dialog), failed pairing handled, `pair.sh --forget` hint ([pairing.md](design/pairing.md)); pairing button on the scanner coming |
-| 4 | Recording control | Start and Stop built and tested against the fake scanner; waits for the scanner's service on the board |
+| 2 | Real-server bring-up | Runs against the real server on the phone (hello, status.get, info.get, events); field tests of reconnect still open |
+| 3 | Pairing and bonding | Fresh pairing verified on device: one dialog, bond before subscribing; failed pairing handled with the `pair.sh --forget` hint ([pairing.md](design/pairing.md)); the scanner's pairing button is coming |
+| 4 | Recording control | Start and Stop verified on device against the real scanner without a lidar (start → preparing, stop → idle, sensor failure → error); a real recording is still to test |
 | 5 | Wi-Fi setup | Designed ([wifi-setup.md](design/wifi-setup.md)) |
 | 6 | Logs and diagnostics | Planned |
 | 7 | Release | Planned |
