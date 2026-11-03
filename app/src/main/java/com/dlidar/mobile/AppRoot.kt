@@ -2,6 +2,7 @@ package com.dlidar.mobile
 
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -19,18 +20,24 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dlidar.mobile.domain.model.ConnectionState
 import com.dlidar.mobile.domain.model.Discovery
 import com.dlidar.mobile.domain.model.ScannerCandidate
+import com.dlidar.mobile.domain.model.WifiScan
 import com.dlidar.mobile.infra.ble.BlePermissions
+import com.dlidar.mobile.infra.wifi.WifiPermissions
 import com.dlidar.mobile.presentation.connect.ConnectAction
 import com.dlidar.mobile.presentation.connect.ConnectScreen
 import com.dlidar.mobile.presentation.connect.ConnectViewModel
 import com.dlidar.mobile.presentation.status.StatusAction
 import com.dlidar.mobile.presentation.status.StatusScreen
 import com.dlidar.mobile.presentation.status.StatusViewModel
+import com.dlidar.mobile.presentation.wifi.WifiSetupAction
+import com.dlidar.mobile.presentation.wifi.WifiSetupScreen
+import com.dlidar.mobile.presentation.wifi.WifiSetupViewModel
 
 private sealed interface Screen {
     data object Connect : Screen
     data object Status : Screen
     data object TrafficLog : Screen
+    data object Wifi : Screen
     data class LinkTest(val candidate: ScannerCandidate) : Screen
 }
 
@@ -43,6 +50,7 @@ private val ScreenSaver = Saver<Screen, String>(
         when (it) {
             Screen.Status -> "status"
             Screen.TrafficLog -> "traffic"
+            Screen.Wifi -> "wifi"
             else -> "connect"
         }
     },
@@ -50,6 +58,7 @@ private val ScreenSaver = Saver<Screen, String>(
         when (it) {
             "status" -> Screen.Status
             "traffic" -> Screen.TrafficLog
+            "wifi" -> Screen.Wifi
             else -> Screen.Connect
         }
     },
@@ -65,7 +74,7 @@ fun AppRoot(container: AppContainer) {
         mutableStateOf(if (snapshot.connection != ConnectionState.Disconnected) Screen.Status else Screen.Connect)
     }
     // After process death the saved screen may be Status while no scanner is selected.
-    val shown = if (screen == Screen.Status && snapshot.target == null) Screen.Connect else screen
+    val shown = if ((screen == Screen.Status || screen == Screen.Wifi) && snapshot.target == null) Screen.Connect else screen
 
     when (val current = shown) {
         Screen.Connect -> ConnectRoute(
@@ -82,7 +91,12 @@ fun AppRoot(container: AppContainer) {
                 container,
                 onDisconnected = { screen = Screen.Connect },
                 onTrafficLog = if (DebugTools.trafficLogAvailable) ({ screen = Screen.TrafficLog }) else null,
+                onWifiSetup = { screen = Screen.Wifi },
             )
+        }
+        Screen.Wifi -> {
+            BackHandler { screen = Screen.Status }
+            WifiRoute(container, onBack = { screen = Screen.Status })
         }
         Screen.TrafficLog -> {
             BackHandler { screen = Screen.Status }
@@ -135,7 +149,7 @@ private fun ConnectRoute(container: AppContainer, onConnected: () -> Unit, onLin
 }
 
 @Composable
-private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onTrafficLog: (() -> Unit)?) {
+private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onTrafficLog: (() -> Unit)?, onWifiSetup: () -> Unit) {
     val viewModel = viewModel {
         StatusViewModel(
             container.observeScanner,
@@ -148,8 +162,35 @@ private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onT
         )
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
-    StatusScreen(state, onTrafficLog = onTrafficLog) { action ->
+    StatusScreen(state, onTrafficLog = onTrafficLog, onWifiSetup = onWifiSetup) { action ->
         viewModel.onAction(action)
         if (action is StatusAction.Disconnect) onDisconnected()
     }
+}
+
+@Composable
+private fun WifiRoute(container: AppContainer, onBack: () -> Unit) {
+    val viewModel = viewModel { WifiSetupViewModel(container.scanWifiNetworks, container.joinWifi, container.readScannerWifi) }
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val rescan = { viewModel.onAction(WifiSetupAction.Scan) }
+    val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { rescan() }
+    val settings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { rescan() }
+
+    LaunchedEffect(Unit) { viewModel.onAction(WifiSetupAction.Opened) }
+
+    WifiSetupScreen(
+        state = state,
+        onAction = viewModel::onAction,
+        onFixProblem = { problem ->
+            when (problem) {
+                WifiScan.Problem.PermissionMissing -> permissions.launch(WifiPermissions.required.toTypedArray())
+                WifiScan.Problem.LocationOff -> settings.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                WifiScan.Problem.WifiOff -> settings.launch(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) Intent(Settings.Panel.ACTION_WIFI) else Intent(Settings.ACTION_WIFI_SETTINGS),
+                )
+                WifiScan.Problem.ScanFailed -> rescan()
+            }
+        },
+        onBack = onBack,
+    )
 }

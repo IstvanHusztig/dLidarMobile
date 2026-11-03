@@ -34,6 +34,8 @@ data class StatusUiState(
     /** The last recording is still being saved; Start waits for idle. */
     val saving: Boolean = false,
     val commandFailure: CommandFailure? = null,
+    /** The Wi-Fi setup entry is shown: live, and the scanner takes the Wi-Fi commands. */
+    val showWifiSetup: Boolean = false,
 ) {
     /** A start or stop the scanner refused, or that got no answer. */
     data class CommandFailure(val command: RecordingCommand, val error: DomainError)
@@ -71,6 +73,7 @@ data class StatusUiState(
                 canStop = controls && !sending && recordingState != null && RecordingControl.canStop(recordingState),
                 saving = controls && recordingState == RecordingState.Finalizing,
                 commandFailure = commandFailure.takeIf { controls },
+                showWifiSetup = live && snapshot.compatibility.allowsRequests && snapshot.canSetUpWifi,
             )
         }
     }

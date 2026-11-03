@@ -1,4 +1,4 @@
-# Design: Wi-Fi setup of the scanner (not built yet; contract final)
+# Design: Wi-Fi setup of the scanner (built; tested against the fake scanner)
 
 The scanner never scans for Wi-Fi networks itself; the phone does the scan, and the user
 picks a network.
@@ -7,10 +7,11 @@ picks a network.
 
 | Layer | Piece |
 |---|---|
-| `:domain` | `WifiNetwork(ssid, security, rssi)`, `WifiSecurity` (`Wpa2Psk`, `Wpa3Sae`, `Open`, `Unsupported(raw)`), the `WifiNetworkScanner` port, the pure `NetworkListMerger`, and the use cases `ScanWifiNetworks`, `ConfigureWifi` and `ObserveScannerWifi` |
+| `:domain` | `WifiNetwork(ssid, security, rssi)`, `WifiSecurity` (`Wpa2Psk`, `Wpa3Sae`, `Open`, `Unsupported(kind)`), `WifiPassword`, `WifiCredentials`, the ports `WifiNetworkScanner` and `ScannerWifi`, the pure `NetworkListMerger`, and the use cases `ScanWifiNetworks`, `JoinWifi` and `ReadScannerWifi` |
 | `:infra:wifi` (new) | `AndroidWifiNetworkScanner`: `WifiManager.startScan()`, `SCAN_RESULTS_AVAILABLE_ACTION`, `scanResults`, the permission and location checks, `ScanThrottle`, and the pure `SecurityTypeResolver` |
-| `:data:scanner` | The commands `WifiConnectCommand` (`sensitiveArgs = setOf("psk")`) and `WifiStatusCommand`, plus `PendingOperations`, which matches an `op` event to its request |
-| `:presentation` | A network list, a password sheet, and the result |
+| `:data:scanner` | The commands `WifiConnectCommand` (`sensitiveArgs = setOf("psk")`) and `WifiStatusCommand`, `PendingOperations`, which matches a `result` event to its request by `op`, and `ScannerWifiImpl`, which joins and recovers through `wifi.status` |
+| `:presentation` | `WifiSetupScreen` (the scanner's Wi-Fi, the network list, a password dialog with `JoinForm`, a progress dialog, the result with Retry) and `WifiSetupViewModel`; a "Scanner Wi-Fi" button on the status screen when `hello` lists the commands |
+| `:app` | The Wi-Fi route: permissions (`NEARBY_WIFI_DEVICES` on Android 13+, fine location before), Wi-Fi and location settings |
 
 ## Steps
 
@@ -26,11 +27,13 @@ picks a network.
    WEP, OWE) → `Unsupported`, shown but not selectable. Hidden SSIDs and SSIDs that are not
    UTF-8 are out of scope too.
 4. **Password.** It must be 8 to 63 printable ASCII characters or 64 hex digits (the scanner
-   answers anything else with `bad_request`), so the app checks it before sending. It is
-   entered as a `CharArray` and kept only in memory. It is cleared after
-   the request is sent and never logged: `sensitiveArgs` redacts it in the protocol log, and
-   the domain types hide it in `toString`. It is never written to storage; a later "remember"
-   feature would need the Android Keystore.
+   answers anything else with `bad_request`), so the app checks it before sending. It is kept
+   only in memory and never written to storage (a later "remember" feature would need the
+   Android Keystore). From the form on it travels as a `CharArray` in a `WifiPassword`, which
+   hides itself in `toString` and is cleared once sent; `sensitiveArgs` redacts it in the
+   protocol log and the traffic log. Two copies are Strings and cannot be wiped: the text
+   field's state while typing (emptied on Connect and when the form closes) and the JSON line
+   being written.
 5. **Send.** `wifi.connect {"ssid", "security", "psk"}` (no `psk` for open networks) answers
    `{"accepted":true,"timeout_s":60}`. The `result` event with `"op": <request id>` carries the
    outcome and always comes within `timeout_s`. `PendingOperations` waits `timeout_s` plus a

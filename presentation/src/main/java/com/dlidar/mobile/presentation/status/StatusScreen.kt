@@ -48,6 +48,7 @@ fun StatusScreen(
     state: StatusUiState,
     /** Debug builds only: opens the protocol traffic log. */
     onTrafficLog: (() -> Unit)? = null,
+    onWifiSetup: () -> Unit = {},
     onAction: (StatusAction) -> Unit,
 ) {
     Scaffold(
@@ -78,6 +79,13 @@ fun StatusScreen(
             if (state.refreshError != null) item { Notice(stringResource(R.string.refresh_failed), MaterialTheme.colorScheme.errorContainer) }
             if (state.showRecordingControls) item { RecordingControls(state, onAction) }
             item { RecordingCard(state.status, state.freeBytes, state.isLive) }
+            if (state.showWifiSetup) {
+                item {
+                    OutlinedButton(onClick = onWifiSetup, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.action_wifi_setup))
+                    }
+                }
+            }
             if (state.warnings.isNotEmpty()) {
                 item { SectionTitle(stringResource(R.string.section_warnings)) }
                 items(state.warnings, key = { it.id }) { warning -> WarningCard(warning, onAction) }
