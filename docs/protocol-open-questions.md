@@ -267,6 +267,8 @@ spec (docs/phone-protocol.md on the scanner side), *provisional* ones may still 
 
    **Scanner answer (2026-11-02):** Provisional: transition networks use `"wpa2-psk"`. Out of scope: hidden SSIDs, Enterprise, WEP, non-UTF-8 SSIDs. PSK: 8-63 printable ASCII or 64 hex, else `bad_request`. Results: `connected`, `wrong_password`, `not_found`, `timeout`, `failed`.
 
+   **Scanner answer (2026-11-03):** Binding (dLidar's docs/phone-protocol.md, "wifi.connect" and "wifi.status"). `wifi.connect {ssid, security, psk}` answers `{"accepted":true,"timeout_s":60}`, then exactly one `result` event with `op`: `ok:true` with `{ssid, ip}` (ip may be null), or `ok:false` with `wrong_password`, `not_found` (may show as `timeout`), `timeout` or `failed` (a specific readable message). Immediate errors: `bad_request` naming the argument (ssid 1-32 bytes, security, psk rules, no psk for open), `busy` while another join runs (any client). `wifi.status` answers `{state, ssid, ip, last}`: state `connected`, `connecting`, `disconnected` or `unavailable`; while a join runs, `connecting` with the target ssid, ip null and `last.result` `"pending"`. A network is saved only when joined, next to the saved ones; the same SSID again replaces its entry (a full join with a short Wi-Fi drop). On failure nothing is saved and the Pi rejoins its previous network. Allowed during a recording. hello lists both commands. Not yet measured: whether BLE survives the join, and how a wrong WPA3 password is reported.
+
 35. **`log.get` paging:** what is the cursor, and what is the page size?
 
    **Answer:** The spec says only "log.get with paging". Not in the spec; still open for the scanner side.

@@ -1,4 +1,4 @@
-# Design: Wi-Fi setup of the scanner (not built yet)
+# Design: Wi-Fi setup of the scanner (not built yet; contract final)
 
 The scanner never scans for Wi-Fi networks itself; the phone does the scan, and the user
 picks a network.
@@ -31,15 +31,32 @@ picks a network.
    the request is sent and never logged: `sensitiveArgs` redacts it in the protocol log, and
    the domain types hide it in `toString`. It is never written to storage; a later "remember"
    feature would need the Android Keystore.
-5. **Send.** `wifi.connect {"ssid", "psk", "security"}` (no `psk` for open networks) answers
-   `{"accepted":true}`. The later event with `"op": <request id>` carries the result.
-   `PendingOperations` waits for it with a timeout, and a reconnect before the result arrives
-   shows "result unknown, check Wi-Fi status".
-6. **Result.** connected → show `wifi.status` (SSID and IP address). Wrong password → ask
-   again. Not found → "The scanner may be out of range of this network." Timeout → offer a
-   retry. Failed (`failed`, any other error) → offer a retry.
-   The wire values are `connected`, `wrong_password`, `not_found`, `timeout` and `failed`
-   (open question 34).
+5. **Send.** `wifi.connect {"ssid", "security", "psk"}` (no `psk` for open networks) answers
+   `{"accepted":true,"timeout_s":60}`. The `result` event with `"op": <request id>` carries the
+   outcome and always comes within `timeout_s`. `PendingOperations` waits `timeout_s` plus a
+   margin. Immediate errors: `busy` (another join runs, from any phone) → "try again shortly";
+   `bad_request` (the app's checks and the scanner's disagree) → show the scanner's message.
+   The app checks the SSID too: 1 to 32 bytes of UTF-8.
+6. **Result.** `ok:true` → connected; show the SSID and the IP address from the result (ip may
+   be null). `wrong_password` → ask again. `not_found` → "The scanner may be out of range of
+   this network." `timeout` → offer a retry (a network out of range can show as timeout too,
+   since the Pi never scans). `failed` → show the scanner's message as it is (for example a
+   missing permission rule on the Pi, NetworkManager not running, no Wi-Fi device), offer a
+   retry.
+7. **Recovery.** The Pi 5's radio is shared, so the BLE link may drop during the join (not
+   measured yet). After a reconnect, or when the wait runs out, the app asks `wifi.status`:
+   `last.result` `"pending"` → keep waiting; otherwise `last` gives the lost outcome (only for
+   the SSID the user sent; `last` is the newest join since dLidar started).
+8. **Status.** `wifi.status` → `state` `connected`, `connecting`, `disconnected` or
+   `unavailable`, with `ssid` and `ip` (null when not connected). `unavailable` → "Wi-Fi is not
+   available on the scanner", and Connect is not offered. Wi-Fi setup is offered only when
+   `hello` lists `wifi.connect` and `wifi.status`.
+
+Scanner rules the app relies on: a network is saved only once joined, next to the saved ones
+(the Pi joins whichever is in range); sending a saved SSID again replaces its entry, which is
+how a password is changed, with a full join and a short Wi-Fi drop; on failure nothing is saved
+and the Pi rejoins its previous network. Joining is allowed during a recording. Removing a
+saved network (`wifi.forget`) and listing saved networks come later.
 
 ## Tests
 

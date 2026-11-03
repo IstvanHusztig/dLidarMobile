@@ -11,7 +11,7 @@ Each milestone names the scanner-side answers it needs (numbers refer to
 | 2 | Real-server bring-up | Runs against the real server on the phone (hello, status.get, info.get, events); field tests of reconnect still open |
 | 3 | Pairing and bonding | Fresh pairing verified on device: one dialog, bond before subscribing; failed pairing handled with the `pair.sh --forget` hint ([pairing.md](design/pairing.md)); the scanner's pairing button is coming |
 | 4 | Recording control | Start and Stop verified on device against the real scanner without a lidar (start → preparing, stop → idle, sensor failure → error); a real recording is still to test |
-| 5 | Wi-Fi setup | Designed ([wifi-setup.md](design/wifi-setup.md)) |
+| 5 | Wi-Fi setup | Designed; contract final with the scanner side ([wifi-setup.md](design/wifi-setup.md)); waits for the scanner build to test against |
 | 6 | Logs and diagnostics | Planned |
 | 7 | Release | Planned |
 
