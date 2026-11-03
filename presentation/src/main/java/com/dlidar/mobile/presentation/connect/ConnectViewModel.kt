@@ -20,9 +20,13 @@ data class ConnectUiState(
     val scanning: Boolean = false,
     val candidates: List<ScannerCandidate> = emptyList(),
     val problem: Discovery.Problem? = null,
+    /** The last scanner used; offered for reconnecting instead of a new search. Not in [candidates]. */
+    val lastScanner: ScannerCandidate? = null,
 )
 
 sealed interface ConnectAction {
+    /** The screen is shown: with a [lastScanner] it is offered, without one a search starts. */
+    data class Opened(val lastScanner: ScannerCandidate?) : ConnectAction
     data object StartScan : ConnectAction
     data object StopScan : ConnectAction
     data class Select(val candidate: ScannerCandidate) : ConnectAction
@@ -41,6 +45,10 @@ class ConnectViewModel(
 
     fun onAction(action: ConnectAction) {
         when (action) {
+            is ConnectAction.Opened -> {
+                mutableState.update { it.copy(lastScanner = action.lastScanner, candidates = it.candidates.without(action.lastScanner)) }
+                if (action.lastScanner == null) startScan()
+            }
             ConnectAction.StartScan -> startScan()
             ConnectAction.StopScan -> stopScan()
             is ConnectAction.Select -> {
@@ -57,7 +65,7 @@ class ConnectViewModel(
             withTimeoutOrNull(scanDuration) {
                 findScanners().collect { discovery ->
                     when (discovery) {
-                        is Discovery.Found -> mutableState.update { it.copy(candidates = discovery.candidates) }
+                        is Discovery.Found -> mutableState.update { it.copy(candidates = discovery.candidates.without(it.lastScanner)) }
                         is Discovery.Failed -> mutableState.update { it.copy(problem = discovery.problem, scanning = false) }
                     }
                 }
@@ -65,6 +73,9 @@ class ConnectViewModel(
             mutableState.update { it.copy(scanning = false) }
         }
     }
+
+    private fun List<ScannerCandidate>.without(scanner: ScannerCandidate?) =
+        if (scanner == null) this else filter { it.id != scanner.id }
 
     private fun stopScan() {
         scan?.cancel()

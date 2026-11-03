@@ -56,7 +56,10 @@ fun ConnectScreen(
             if (state.scanning) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.problem?.let { problem -> ProblemCard(problem, onFixProblem) }
             LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (state.candidates.isEmpty() && state.problem == null) {
+                state.lastScanner?.let { last ->
+                    item(key = "last") { LastScannerCard(last, onConnect = { onAction(ConnectAction.Select(last)) }) }
+                }
+                if (state.lastScanner == null && state.candidates.isEmpty() && state.problem == null) {
                     item {
                         Text(
                             stringResource(if (state.scanning) R.string.connect_scanning else R.string.connect_none_found),
@@ -68,6 +71,20 @@ fun ConnectScreen(
                     CandidateRow(candidate, onSelect = { onAction(ConnectAction.Select(candidate)) }, onLinkTest = onLinkTest)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun LastScannerCard(scanner: ScannerCandidate, onConnect: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.connect_last), style = MaterialTheme.typography.labelMedium)
+                Text(scanner.name ?: stringResource(R.string.connect_unnamed), style = MaterialTheme.typography.titleMedium)
+                Text(scanner.id, style = MaterialTheme.typography.bodySmall)
+            }
+            Button(onClick = onConnect) { Text(stringResource(R.string.action_connect)) }
         }
     }
 }

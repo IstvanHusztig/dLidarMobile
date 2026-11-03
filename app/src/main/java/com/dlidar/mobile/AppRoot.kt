@@ -105,7 +105,9 @@ private fun ConnectRoute(container: AppContainer, onConnected: () -> Unit, onLin
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { rescan() }
     val settings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { rescan() }
 
-    LaunchedEffect(Unit) { rescan() }
+    // After a disconnect the scanner is offered for reconnecting; a search only starts when the
+    // user asks, so the scanner is not chased right after the user let it go.
+    LaunchedEffect(Unit) { viewModel.onAction(ConnectAction.Opened(container.observeScanner().value.target)) }
 
     ConnectScreen(
         state = state,

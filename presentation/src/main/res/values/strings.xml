@@ -8,6 +8,8 @@
     <string name="connect_unnamed">Unnamed scanner</string>
     <string name="connect_signal">Signal %1$d dBm</string>
     <string name="connect_link_test">Link test</string>
+    <string name="connect_last">Last scanner</string>
+    <string name="action_connect">Connect</string>
     <string name="problem_bluetooth_off">Bluetooth is off.</string>
     <string name="problem_permission">The app needs permission to find and connect to the scanner.</string>
     <string name="problem_location_off">Switch location on; this Android version needs it to find Bluetooth devices.</string>

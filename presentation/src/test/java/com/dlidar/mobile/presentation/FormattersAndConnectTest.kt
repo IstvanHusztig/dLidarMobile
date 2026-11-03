@@ -87,6 +87,45 @@ class FormattersAndConnectTest {
     }
 
     @Test
+    fun `the last scanner is offered and connects without a search`() = runTest(dispatcher) {
+        val repository = RecordingRepository()
+        val viewModel = ConnectViewModel(FindScanners { error("must not search") }, ConnectScanner(repository))
+
+        viewModel.onAction(ConnectAction.Opened(candidate))
+        runCurrent()
+        assertEquals(candidate, viewModel.state.value.lastScanner)
+        assertFalse(viewModel.state.value.scanning)
+
+        viewModel.onAction(ConnectAction.Select(candidate))
+        assertEquals(listOf(candidate), repository.connected)
+    }
+
+    @Test
+    fun `each opening updates the last scanner, and a search does not list it twice`() = runTest(dispatcher) {
+        val other = ScannerCandidate("CC:DD", "dLidar", -60)
+        val viewModel = ConnectViewModel(
+            FindScanners { flow { emit(Discovery.Found(listOf(candidate, other))); awaitCancellation() } },
+            ConnectScanner(RecordingRepository()),
+        )
+        viewModel.onAction(ConnectAction.Opened(null))
+        runCurrent()
+        assertTrue(viewModel.state.value.scanning)
+        assertEquals(listOf(candidate, other), viewModel.state.value.candidates)
+
+        // The same ViewModel is reused when the user comes back after a disconnect.
+        viewModel.onAction(ConnectAction.Select(candidate))
+        viewModel.onAction(ConnectAction.Opened(candidate))
+        assertEquals(candidate, viewModel.state.value.lastScanner)
+        assertEquals(listOf(other), viewModel.state.value.candidates)
+
+        viewModel.onAction(ConnectAction.StartScan)
+        runCurrent()
+        assertTrue(viewModel.state.value.scanning)
+        assertEquals(listOf(other), viewModel.state.value.candidates)
+        viewModel.onAction(ConnectAction.StopScan)
+    }
+
+    @Test
     fun `a problem is shown`() = runTest(dispatcher) {
         val viewModel = ConnectViewModel(
             FindScanners { flow { emit(Discovery.Failed(Discovery.Problem.PermissionMissing)) } },
