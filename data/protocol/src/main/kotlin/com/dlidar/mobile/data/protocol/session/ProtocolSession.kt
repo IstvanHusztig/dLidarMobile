@@ -11,8 +11,15 @@ interface CommandSender {
      *
      * [onAnswer] runs on the session's reader, before any message that arrived after the
      * response is handled. Use it to apply results in stream order. It must not suspend.
+     *
+     * [onSent] gets the request id just before the request is written, so a result that comes
+     * later in an event (`"op": <id>`) can be matched. It must not suspend.
      */
-    suspend fun <R> call(command: ProtocolCommand<R>, onAnswer: ((R) -> Unit)? = null): CallResult<R>
+    suspend fun <R> call(
+        command: ProtocolCommand<R>,
+        onSent: ((id: Int) -> Unit)? = null,
+        onAnswer: ((R) -> Unit)? = null,
+    ): CallResult<R>
 }
 
 /** The protocol on one connection, from link up to link down. A new link gets a new session. */

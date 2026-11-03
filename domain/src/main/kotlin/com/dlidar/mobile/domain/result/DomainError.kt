@@ -13,6 +13,8 @@ sealed interface DomainError {
     data object IncompatibleProtocol : DomainError
     /** The scanner does not take this command (hello did not list it); nothing is sent. */
     data object NotSupported : DomainError
+    /** The request breaks a rule the app checks before sending; nothing is sent. */
+    data class InvalidInput(val problem: String) : DomainError
     /** The scanner rejected the request. Unknown codes land here too, as generic errors. */
     data class Remote(val code: String, val message: String) : DomainError
 }

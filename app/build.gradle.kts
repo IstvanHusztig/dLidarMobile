@@ -38,6 +38,7 @@ dependencies {
     implementation(project(":data:protocol"))
     implementation(project(":data:scanner"))
     implementation(project(":infra:ble"))
+    implementation(project(":infra:wifi"))
     implementation(project(":presentation"))
     debugImplementation(project(":debug:linktest"))
     debugImplementation(project(":debug:traffic"))

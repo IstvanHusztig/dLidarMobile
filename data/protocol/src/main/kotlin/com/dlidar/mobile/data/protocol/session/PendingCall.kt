@@ -9,6 +9,8 @@ import kotlinx.serialization.json.JsonObject
 internal class PendingCall<R>(
     val command: ProtocolCommand<R>,
     private val onAnswer: ((R) -> Unit)?,
+    /** Gets the id just before the request is written. */
+    val onSent: ((Int) -> Unit)? = null,
 ) {
     val result = CompletableDeferred<CallResult<R>>()
 

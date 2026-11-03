@@ -12,6 +12,7 @@ import com.dlidar.mobile.data.scanner.StatusRefresher
 import com.dlidar.mobile.data.scanner.command.HelloCommand
 import com.dlidar.mobile.data.scanner.command.InfoGetCommand
 import com.dlidar.mobile.data.scanner.command.RECORDING_COMMANDS
+import com.dlidar.mobile.data.scanner.command.WIFI_COMMANDS
 import com.dlidar.mobile.domain.model.Compatibility
 import kotlinx.coroutines.delay
 import kotlin.time.Duration
@@ -19,7 +20,7 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * What happens on every link up: hello first, because its answer decides compatibility and
- * whether recording control is offered; then
+ * which features are offered (recording control, Wi-Fi setup); then
  * status.get (through the refresher) and info.get together, each repeated until it succeeds.
  * After a protocol mismatch nothing more is sent. While the scanner sends nothing that is a
  * protocol message (its echo test service, for example), only hello is repeated, every
@@ -52,7 +53,7 @@ internal class SessionHandshake(
         // An older scanner answers these commands with unknown_command, so they are offered
         // only when hello lists them.
         val commands = (hello as? CallResult.Success)?.value?.commands.orEmpty()
-        record(ScannerInput.RecordingControlKnown(commands.containsAll(RECORDING_COMMANDS)))
+        record(ScannerInput.FeaturesKnown(commands.containsAll(RECORDING_COMMANDS), commands.containsAll(WIFI_COMMANDS)))
         onReady()
         refresher.start()
         refresher.request()

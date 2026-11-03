@@ -30,8 +30,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * Plays the scanner's side of the link, following protocol v1: it reassembles written pieces,
  * answers hello, status.get (with the recording's warnings and the last summary), info.get,
- * recording.start and recording.stop (only when hello lists them, as an older scanner answers
- * unknown_command), numbers events from 1 per connection, and splits
+ * recording.start, recording.stop, wifi.connect and wifi.status (only when hello lists them,
+ * as an older scanner answers unknown_command), numbers events from 1 per connection, and splits
  * everything it sends into notifications of at most MTU-3 bytes, each message starting in a
  * fresh notification.
  *
@@ -85,6 +85,30 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
      * finalizing → idle). False leaves it in preparing or finalizing for the test to move on.
      */
     var recordingAdvances = true
+
+    // --- Wi-Fi ---------------------------------------------------------------------------------
+
+    /** The outcome of the next joins: "connected" or a result error code (wrong_password, ...). */
+    var wifiJoinOutcome = "connected"
+
+    /** True: a join ends at once. False: it runs until [finishWifiJoin], as on the Pi. */
+    var wifiJoinFinishes = true
+
+    var wifiTimeoutS = 60
+    var wifiIp: String? = "192.168.1.50"
+    /** "unavailable" makes every join fail as the Pi does without a Wi-Fi device. */
+    var wifiDevice = "present"
+
+    var wifiState = "disconnected"
+        private set
+    var wifiSsid: String? = null
+        private set
+    /** The networks joined and saved, in order; the same SSID again replaces its entry. */
+    val savedNetworks: MutableList<String> = mutableListOf()
+    private var lastJoin: Pair<String, String>? = null
+    private var runningJoin: RunningJoin? = null
+
+    private class RunningJoin(val op: JsonElement, val ssid: String, val connection: Any?, val before: Pair<String, String?>)
 
     /** Every piece written, in order, across connections. */
     val writtenPieces: MutableList<ByteArray> = CopyOnWriteArrayList()
@@ -230,8 +254,10 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
         if ((request["v"] as? JsonPrimitive)?.content != "1") violations += "request without \"v\":1: $line"
         if (cmd == null) return respondError(id, "bad_request", "missing cmd")
         if (cmd in silentCommands) return
-        if (request["args"] != null) {
-            violations += "undocumented args for $cmd: $line"
+        val args = request["args"]
+        val documented = DOCUMENTED_ARGS[cmd].orEmpty()
+        if (args != null && (args !is JsonObject || !documented.containsAll(args.keys))) {
+            violations += "undocumented args for $cmd: ${redactPsk(line)}"
             return respondError(id, "bad_request", "unknown arg")
         }
         scriptedErrors[cmd]?.removeFirstOrNull()?.let { code -> return respondError(id, code, code) }
@@ -239,11 +265,110 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
             "hello" -> hello?.let { respond(id, it) } ?: respondError(id, "unknown_command", "unknown command")
             "status.get" -> respond(id, statusResult())
             "info.get" -> respond(id, info)
+            "wifi.connect" -> if (lists(cmd)) wifiConnect(id, request["args"] as? JsonObject) else respondError(id, "unknown_command", "unknown command")
+            "wifi.status" -> if (lists(cmd)) respond(id, wifiStatus()) else respondError(id, "unknown_command", "unknown command")
             "recording.start" -> if (lists(cmd)) recordingStart(id) else respondError(id, "unknown_command", "unknown command")
             "recording.stop" -> if (lists(cmd)) recordingStop(id) else respondError(id, "unknown_command", "unknown command")
             else -> respondError(id, "unknown_command", "unknown command")
         }
     }
+
+    /** Spec: wifi.connect checks its arguments, answers at once, and reports the outcome later. */
+    private fun wifiConnect(id: JsonElement, args: JsonObject?) {
+        val ssid = args?.text("ssid")
+        val security = args?.text("security")
+        val psk = args?.get("psk")
+        val badRequest = when {
+            ssid == null -> "wifi.connect needs \"ssid\""
+            ssid.toByteArray(Charsets.UTF_8).size !in 1..32 -> "\"ssid\" must be 1 to 32 bytes"
+            security == null -> "wifi.connect needs \"security\""
+            security !in listOf("wpa2-psk", "wpa3-sae", "open") -> "unknown \"security\": use wpa2-psk, wpa3-sae or open"
+            security == "open" && psk != null -> "\"psk\" must be left out for an open network"
+            security != "open" && psk == null -> "\"psk\" is needed for a network with a password"
+            psk != null && (psk !is JsonPrimitive || !psk.isString) -> "\"psk\" must be a string"
+            psk != null && !validPsk((psk as JsonPrimitive).content) ->
+                "\"psk\" must be 8 to 63 printable ASCII characters or 64 hexadecimal digits"
+            else -> null
+        }
+        if (badRequest != null) {
+            violations += "bad wifi.connect: $badRequest"
+            return respondError(id, "bad_request", badRequest)
+        }
+        if (runningJoin != null) return respondError(id, "busy", "another Wi-Fi join is still running; try again when it has ended")
+        runningJoin = RunningJoin(id, ssid!!, connection, wifiState to wifiSsid)
+        wifiState = "connecting"
+        wifiSsid = ssid
+        lastJoin = ssid to "pending"
+        respond(id, buildJsonObject {
+            put("accepted", true)
+            put("timeout_s", wifiTimeoutS)
+        })
+        if (wifiJoinFinishes) finishWifiJoin()
+    }
+
+    /**
+     * Ends the running join with [outcome]. The result event goes only to the connection that
+     * asked, and only while it is still up: after a drop it is lost, as on the Pi.
+     */
+    fun finishWifiJoin(outcome: String = wifiJoinOutcome) {
+        val join = runningJoin ?: error("no Wi-Fi join is running")
+        runningJoin = null
+        val result = if (wifiDevice == "unavailable") "failed" else outcome
+        if (result == "connected") {
+            wifiState = "connected"
+            wifiSsid = join.ssid
+            savedNetworks.remove(join.ssid)
+            savedNetworks += join.ssid
+        } else {
+            // Spec: nothing is saved, and the Pi goes back to the network it was on.
+            wifiState = join.before.first
+            wifiSsid = join.before.second
+        }
+        lastJoin = join.ssid to result
+        if (connection == null || connection !== join.connection) return
+        seq += 1
+        sendJson(buildJsonObject {
+            put("event", "result")
+            put("seq", seq)
+            put("op", join.op)
+            if (result == "connected") {
+                put("ok", true)
+                put("result", buildJsonObject {
+                    put("ssid", join.ssid)
+                    put("ip", wifiIp)
+                })
+            } else {
+                put("ok", false)
+                put("error", buildJsonObject {
+                    put("code", result)
+                    put("message", if (result == "failed") "dLidar may not change the network: install systemd/50-dlidar-network.rules" else result)
+                })
+            }
+        })
+    }
+
+    private fun wifiStatus() = buildJsonObject {
+        put("state", if (wifiDevice == "unavailable") "unavailable" else wifiState)
+        put("ssid", wifiSsid)
+        put("ip", if (wifiState == "connected") wifiIp else null)
+        val last = lastJoin
+        if (last == null) {
+            put("last", JsonNull)
+        } else {
+            put("last", buildJsonObject {
+                put("ssid", last.first)
+                put("result", last.second)
+            })
+        }
+    }
+
+    private fun validPsk(psk: String): Boolean =
+        (psk.length in 8..63 && psk.all { it in ' '..'~' }) ||
+            (psk.length == 64 && psk.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' })
+
+    private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+    private fun redactPsk(line: String) = line.replace(Regex("\"psk\":\"[^\"]*\""), "\"psk\":\"***\"")
 
     private fun lists(cmd: String): Boolean =
         (hello?.get("commands") as? JsonArray)?.any { (it as? JsonPrimitive)?.content == cmd } == true
@@ -349,7 +474,13 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
         /** Spec: status.get lists the 16 newest warnings. */
         const val MAX_STATUS_WARNINGS = 16
 
-        val CURRENT_COMMANDS = listOf("hello", "status.get", "info.get", "recording.start", "recording.stop")
+        val CURRENT_COMMANDS = listOf("hello", "status.get", "info.get", "recording.start", "recording.stop", "wifi.connect", "wifi.status")
+
+        /** The commands of a scanner from before Wi-Fi setup. */
+        val RECORDING_COMMANDS = listOf("hello", "status.get", "info.get", "recording.start", "recording.stop")
+
+        /** Spec: the only documented arguments; anything else is bad_request. */
+        private val DOCUMENTED_ARGS = mapOf("wifi.connect" to setOf("ssid", "security", "psk"))
 
         /** The commands of a scanner from before recording control. */
         val OLD_COMMANDS = listOf("hello", "status.get", "info.get")

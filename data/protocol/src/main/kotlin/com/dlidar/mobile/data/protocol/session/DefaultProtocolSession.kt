@@ -82,8 +82,8 @@ class DefaultProtocolSession(
         job.cancel()
     }
 
-    override suspend fun <R> call(command: ProtocolCommand<R>, onAnswer: ((R) -> Unit)?): CallResult<R> {
-        val call = PendingCall(command, onAnswer)
+    override suspend fun <R> call(command: ProtocolCommand<R>, onSent: ((id: Int) -> Unit)?, onAnswer: ((R) -> Unit)?): CallResult<R> {
+        val call = PendingCall(command, onAnswer, onSent)
         // The timeout covers only the wait for the answer: writing can take longer, for example
         // while Android pairs on the first write; the transport bounds that.
         try {
@@ -124,6 +124,7 @@ class DefaultProtocolSession(
         val shown = codec.encodeRequest(id, command.name, redact(command.args(), command.sensitiveArgs))
         logger.debug(TAG) { "-> $shown" }
         traffic.onTraffic(Traffic.Sent(shown))
+        call.onSent?.invoke(id)
         // Once the first piece is out, the rest must follow even if the caller is cancelled;
         // otherwise the scanner keeps a partial line and the next request is glued onto it.
         withContext(NonCancellable) { writePieces(id, pieces) }

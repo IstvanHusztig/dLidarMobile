@@ -9,6 +9,9 @@ import com.dlidar.mobile.data.scanner.event.EventContext
 import com.dlidar.mobile.data.scanner.event.EventDecoding
 import com.dlidar.mobile.data.scanner.event.ScannerEventDecoders
 import com.dlidar.mobile.domain.port.Clock
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 /** Why a session has to end although its link is still up. */
 internal enum class SessionStop {
@@ -26,6 +29,8 @@ internal class SessionSignalHandler(
     private val record: (ScannerInput) -> Unit,
     private val onGap: () -> Unit,
     private val onStop: (SessionStop) -> Unit,
+    /** A `result` event: the late outcome of the request whose id is its `op`. */
+    private val onOperationResult: (op: Int, event: JsonObject) -> Unit,
     private val logger: Logger,
 ) : SessionListener {
 
@@ -40,6 +45,12 @@ internal class SessionSignalHandler(
     }
 
     private fun onEvent(signal: SessionSignal.EventReceived) {
+        if (signal.event.name == RESULT_EVENT) {
+            // Spec: op, ok and result/error are top-level fields; the event has no data.
+            val op = (signal.event.raw["op"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+            if (op == null) logger.warn(TAG, "ignored result event without op") else onOperationResult(op, signal.event.raw)
+            return
+        }
         when (val decoded = decoders.decode(signal.event, EventContext(clock.now(), newWarningId))) {
             is EventDecoding.Decoded -> record(decoded.input)
             EventDecoding.Unknown -> logger.debug(TAG) { "ignored unknown event ${signal.event.name}" }
@@ -49,5 +60,6 @@ internal class SessionSignalHandler(
 
     private companion object {
         const val TAG = "Scanner"
+        const val RESULT_EVENT = "result"
     }
 }

@@ -21,6 +21,7 @@ include(
     ":data:protocol",
     ":data:scanner",
     ":infra:ble",
+    ":infra:wifi",
     ":presentation",
     ":debug:linktest",
     ":debug:traffic",

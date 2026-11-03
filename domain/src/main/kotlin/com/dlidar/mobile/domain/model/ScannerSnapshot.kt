@@ -10,6 +10,8 @@ data class ScannerSnapshot(
     val compatibility: Compatibility = Compatibility.Unknown,
     /** True when this connection's hello listed recording.start and recording.stop. */
     val canControlRecording: Boolean = false,
+    /** True when this connection's hello listed wifi.connect and wifi.status. */
+    val canSetUpWifi: Boolean = false,
     val status: ScannerStatus? = null,
     /** Free storage in bytes; null when the scanner does not know it or has not said yet. */
     val freeBytes: Long? = null,

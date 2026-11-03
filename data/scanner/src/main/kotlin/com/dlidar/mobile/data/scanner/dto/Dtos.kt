@@ -18,6 +18,25 @@ internal data class HelloInfo(
     val commands: Set<String>? = null,
 )
 
+/** The answer to wifi.connect: the join started; the outcome comes in a result event. */
+@Serializable
+internal data class WifiConnectAnswerDto(
+    val accepted: Boolean,
+    @SerialName("timeout_s") val timeoutS: Int? = null,
+)
+
+@Serializable
+internal data class WifiStatusDto(
+    val state: String,
+    val ssid: String? = null,
+    val ip: String? = null,
+    val last: LastJoinDto? = null,
+)
+
+/** [result] is "pending", "connected" or an error code. */
+@Serializable
+internal data class LastJoinDto(val ssid: String, val result: String)
+
 /** The answer to recording.start and recording.stop. */
 @Serializable
 internal data class RecordingCommandDto(

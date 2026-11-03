@@ -13,8 +13,8 @@ internal sealed interface ScannerInput {
     data class TargetSelected(val candidate: ScannerCandidate) : ScannerInput
     data class ConnectionChanged(val state: ConnectionState) : ScannerInput
     data class CompatibilityResolved(val compatibility: Compatibility) : ScannerInput
-    /** Whether this connection's scanner takes recording.start and recording.stop. */
-    data class RecordingControlKnown(val available: Boolean) : ScannerInput
+    /** What this connection's scanner offers beyond the basics, from hello's command list. */
+    data class FeaturesKnown(val recordingControl: Boolean, val wifiSetup: Boolean) : ScannerInput
     /**
      * The answer to status.get. [warnings] is the scanner's whole list (already without the ones
      * the user dismissed), or null when the answer had none; [summary] is null when it had none.

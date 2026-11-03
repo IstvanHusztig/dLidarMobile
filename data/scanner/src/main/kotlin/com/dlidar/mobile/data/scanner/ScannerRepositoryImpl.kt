@@ -19,6 +19,7 @@ import com.dlidar.mobile.data.scanner.event.ScannerEventDecoders
 import com.dlidar.mobile.data.scanner.session.SessionHandshake
 import com.dlidar.mobile.data.scanner.session.SessionSignalHandler
 import com.dlidar.mobile.data.scanner.session.SessionStop
+import com.dlidar.mobile.data.scanner.wifi.PendingOperations
 import com.dlidar.mobile.domain.model.Compatibility
 import com.dlidar.mobile.domain.model.ConnectionState
 import com.dlidar.mobile.domain.model.RecordingCommandResult
@@ -90,7 +91,10 @@ class ScannerRepositoryImpl(
      */
     private val dismissed = mutableSetOf<Pair<WarningKind, String>>()
     /** Set only after hello allowed further requests. */
-    @Volatile private var live: LiveSession? = null
+    private val live = MutableStateFlow<LiveSession?>(null)
+
+    /** The session requests may use, once hello allowed them; null between links. */
+    internal val liveSession: StateFlow<LiveSession?> = live.asStateFlow()
 
     override fun connect(candidate: ScannerCandidate) {
         synchronized(lock) {
@@ -124,8 +128,8 @@ class ScannerRepositoryImpl(
             return Outcome.Failed(DomainError.IncompatibleProtocol)
         }
         // Before hello has decided compatibility there is no live session, so nothing is sent.
-        val active = live ?: return Outcome.Failed(DomainError.NotConnected)
-        return when (val result = active.session.call(StatusGetCommand, active.run::applyStatus)) {
+        val active = live.value ?: return Outcome.Failed(DomainError.NotConnected)
+        return when (val result = active.session.call(StatusGetCommand, onAnswer = active.applyStatus)) {
             is CallResult.Success -> Outcome.Ok(Unit)
             is CallResult.Failure -> Outcome.Failed(ProtocolMappers.error(result.failure))
         }
@@ -138,7 +142,7 @@ class ScannerRepositoryImpl(
     /** Sends a start or stop. The answer comes at once; the state events carry the rest. */
     private suspend fun recordingCommand(command: ProtocolCommand<RecordingCommandDto>): Outcome<RecordingCommandResult> {
         if (!state.value.compatibility.allowsRequests) return Outcome.Failed(DomainError.IncompatibleProtocol)
-        val active = live ?: return Outcome.Failed(DomainError.NotConnected)
+        val active = live.value ?: return Outcome.Failed(DomainError.NotConnected)
         if (!state.value.canControlRecording) return Outcome.Failed(DomainError.NotSupported)
         return when (val result = active.session.call(command)) {
             is CallResult.Success -> Outcome.Ok(ProtocolMappers.recordingCommand(result.value))
@@ -158,7 +162,13 @@ class ScannerRepositoryImpl(
         state.update { ScannerStateReducer.reduce(it, input) }
     }
 
-    private class LiveSession(val run: Run, val session: ProtocolSession)
+    /** A session past hello, with the requests whose outcome comes later on it. */
+    internal class LiveSession(
+        val session: ProtocolSession,
+        val operations: PendingOperations,
+        /** Applies a status.get answer through the run that owns the session. */
+        val applyStatus: (StatusDto) -> Unit,
+    )
 
     private sealed interface SessionEnd {
         data object Refused : SessionEnd
@@ -265,6 +275,7 @@ class ScannerRepositoryImpl(
         private suspend fun runSession(connection: ByteConnection): SessionEnd = coroutineScope {
             val stop = CompletableDeferred<SessionStop>()
             lateinit var session: ProtocolSession
+            val operations = PendingOperations()
             val refresher = StatusRefresher(this) { fetchStatus(session) }
             val handler = SessionSignalHandler(
                 decoders = decoders,
@@ -273,15 +284,20 @@ class ScannerRepositoryImpl(
                 record = ::record,
                 onGap = refresher::request,
                 onStop = { stop.complete(it) },
+                onOperationResult = { op, event ->
+                    if (!operations.complete(op, event)) logger.debug(TAG) { "result for op $op that nobody waits for" }
+                },
                 logger = logger,
             )
             session = sessionFactory.create(connection, handler, this)
             try {
                 record(ScannerInput.CompatibilityResolved(Compatibility.Unknown))
-                record(ScannerInput.RecordingControlKnown(false))
+                record(ScannerInput.FeaturesKnown(recordingControl = false, wifiSetup = false))
                 record(ScannerInput.ConnectionChanged(ConnectionState.Connected))
                 session.start()
-                val goLive: () -> Unit = { synchronized(lock) { if (current === this@Run) live = LiveSession(this@Run, session) } }
+                val goLive: () -> Unit = {
+                    synchronized(lock) { if (current === this@Run) live.value = LiveSession(session, operations, ::applyStatus) }
+                }
                 launch { SessionHandshake(session, refresher, ::record, goLive, logger).run() }
 
                 val linkDown = async {
@@ -301,14 +317,15 @@ class ScannerRepositoryImpl(
                 coroutineContext.cancelChildren()
                 end
             } finally {
-                synchronized(lock) { if (live?.session === session) live = null }
+                synchronized(lock) { if (live.value?.session === session) live.value = null }
+                operations.close()
                 session.close()
             }
         }
 
         /** Returns false when the status is worth fetching again. */
         private suspend fun fetchStatus(session: ProtocolSession): Boolean {
-            val result = session.call(StatusGetCommand, ::applyStatus)
+            val result = session.call(StatusGetCommand, onAnswer = ::applyStatus)
             if (result !is CallResult.Failure) return true
             logger.warn(TAG, "status.get failed: ${result.failure}")
             return !CallRetry.worthRetrying(result.failure)

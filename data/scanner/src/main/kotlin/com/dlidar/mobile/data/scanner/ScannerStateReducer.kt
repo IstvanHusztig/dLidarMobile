@@ -18,7 +18,7 @@ internal object ScannerStateReducer {
             else ScannerSnapshot(target = input.candidate)
         is ScannerInput.ConnectionChanged -> snapshot.copy(connection = input.state)
         is ScannerInput.CompatibilityResolved -> snapshot.copy(compatibility = input.compatibility)
-        is ScannerInput.RecordingControlKnown -> snapshot.copy(canControlRecording = input.available)
+        is ScannerInput.FeaturesKnown -> snapshot.copy(canControlRecording = input.recordingControl, canSetUpWifi = input.wifiSetup)
         is ScannerInput.StatusLoaded -> snapshot.copy(
             status = input.status,
             freeBytes = input.freeBytes,
