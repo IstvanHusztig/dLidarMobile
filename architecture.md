@@ -32,7 +32,7 @@ Source dependencies point **inward only**. Inner layers know nothing about outer
 | `:domain` | Kotlin/JVM | Entities, repository/service **ports**, use cases | kotlinx-coroutines-core only |
 | `:data:protocol` | Kotlin/JVM | `ByteTransport` port, framing, codec, request dispatcher, event sequencer, session | kotlinx-coroutines, kotlinx-serialization-json |
 | `:data:scanner` | Kotlin/JVM | `ScannerRepositoryImpl`, commands, event decoders, DTO→domain mappers, state reducer, reconnect policy | `:domain`, `:data:protocol` |
-| `:infra:ble` | Android lib | `AndroidBleTransport`, the `GattConnection` seam, `BleScannerFinder`, `BlePermissions`, `BleUuids` (later the `BondManager` impl) | `:data:protocol`, `:domain` |
+| `:infra:ble` | Android lib | `AndroidBleTransport`, the `GattConnection` and `GattBonder` seams (`AndroidGattBonder`), `BleScannerFinder`, `BlePermissions`, `BleUuids` | `:data:protocol`, `:domain` |
 | `:infra:wifi` *(later)* | Android lib | `WifiNetworkScanner` impl, scan throttle | `:domain` |
 | `:presentation` | Android lib | Compose screens, ViewModels, UI models | `:domain` **only** |
 | `:debug:linktest` | Android lib, debug builds only | Raw-line console for the scanner's echo test service | `:data:protocol` |
@@ -232,16 +232,20 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
   (so an MTU change the scanner starts cannot complete a write). It covers both the API 33+ and
   the older write and notification APIs. Notifications go into an unlimited channel so they
   stay in order.
+- `GattBonder` is the seam for bonding; `AndroidGattBonder` calls `createBond()` and waits up to
+  30 s for `ACTION_BOND_STATE_CHANGED`.
 - Writes use write-with-response, so GATT does the flow control (an app choice; open
   question 4).
 - `BleScannerFinder : ScannerFinder` scans with a filter on the service UUID only (the scanner
   always advertises it in the advertisement itself; the name may change), and reports missing permissions, Bluetooth off and location off (Android 11 and
   older) as problems.
 - `BlePermissions` gives the runtime permissions for each API level. `:app` asks the user.
-- The scanner needs a bonded phone for every request: RX (and possibly the CCCD) needs an
-  encrypted link. Android pairs on its own on the refused write and repeats it, so writes may
-  wait up to 30 s and the setup up to 45 s. When the write still fails with status 5, 15 or
-  0x89, the link goes down with `DownReason.NotPaired`, which is not retried.
+- The scanner needs a bonded phone for every request: RX and the TX CCCD need an encrypted
+  link. Before the TX subscription, `AndroidGattBonder` (behind the `GattBonder` seam) bonds an
+  unbonded phone with `createBond()` and waits for the bond state, so Android shows one pairing
+  dialog; a failed bonding is `DownReason.NotPaired`. If bonding cannot start, Android pairs on
+  the refused write instead, so writes may wait up to 30 s and the setup up to 45 s. A write that
+  still fails with status 5, 15 or 0x89 also ends the link with `NotPaired`, which is not retried.
 
 ---
 

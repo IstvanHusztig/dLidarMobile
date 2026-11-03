@@ -8,6 +8,7 @@ import com.dlidar.mobile.data.protocol.transport.ConnectResult
 import com.dlidar.mobile.data.protocol.transport.DownReason
 import com.dlidar.mobile.data.protocol.transport.LinkState
 import com.dlidar.mobile.data.protocol.transport.WriteResult
+import com.dlidar.mobile.infra.ble.gatt.BondOutcome
 import com.dlidar.mobile.infra.ble.gatt.GattConnectOutcome
 import com.dlidar.mobile.infra.ble.gatt.GattConnection
 import com.dlidar.mobile.infra.ble.gatt.GattWrite
@@ -73,9 +74,15 @@ internal class FakeGattConnection(
 
 class AndroidBleTransportTest {
 
-    private fun transport(gatt: FakeGattConnection, scope: CoroutineScope, problem: DownReason? = null) =
+    private fun transport(
+        gatt: FakeGattConnection,
+        scope: CoroutineScope,
+        problem: DownReason? = null,
+        bond: BondOutcome = BondOutcome.Bonded,
+    ) =
         AndroidBleTransport(
             connector = { GattConnectOutcome.Connected(gatt) },
+            bonder = { address -> bond.also { gatt.steps += "bond $address" } },
             availability = { problem },
             scope = scope,
             logger = Logger.None,
@@ -88,7 +95,7 @@ class AndroidBleTransportTest {
 
         val connection = (transport.connect("AA") as ConnectResult.Connected).connection
 
-        assertEquals(listOf("discover", "mtu 247", "notify"), gatt.steps)
+        assertEquals(listOf("discover", "mtu 247", "bond AA", "notify"), gatt.steps)
         assertEquals(244, connection.maxWritePiece)
         connection.write(byteArrayOf(1))
         assertEquals("write", gatt.steps.last())
@@ -126,6 +133,25 @@ class AndroidBleTransportTest {
         assertEquals(ConnectResult.Failed(DownReason.NotPaired), transport.connect("AA"))
         assertEquals(LinkState.Down(DownReason.NotPaired), transport.link.value)
         assertTrue("close" in gatt.steps)
+    }
+
+    @Test
+    fun `a failed bonding fails the setup as not paired before notifications are asked for`() = runTest {
+        val gatt = FakeGattConnection()
+        val transport = transport(gatt, backgroundScope, bond = BondOutcome.Failed)
+
+        assertEquals(ConnectResult.Failed(DownReason.NotPaired), transport.connect("AA"))
+        assertFalse("notify" in gatt.steps)
+        assertEquals("close", gatt.steps.last())
+    }
+
+    @Test
+    fun `bonding that cannot start leaves pairing to Android`() = runTest {
+        val gatt = FakeGattConnection()
+        val transport = transport(gatt, backgroundScope, bond = BondOutcome.Unavailable)
+
+        assertTrue(transport.connect("AA") is ConnectResult.Connected)
+        assertEquals(listOf("discover", "mtu 247", "bond AA", "notify"), gatt.steps)
     }
 
     @Test
@@ -193,6 +219,7 @@ class AndroidBleTransportContractTest : ByteTransportContract() {
         private val gatt = FakeGattConnection(negotiatedMtu = 185)
         override val transport: ByteTransport = AndroidBleTransport(
             connector = { GattConnectOutcome.Connected(gatt) },
+            bonder = { BondOutcome.Bonded },
             availability = { null },
             scope = scope,
             logger = Logger.None,

@@ -37,6 +37,22 @@ internal interface GattConnection {
  */
 internal enum class GattWrite { Ok, Failed, NotPaired }
 
+/** Bonds with a device before the first encrypted GATT operation, so Android asks the user once. */
+internal fun interface GattBonder {
+    suspend fun ensureBonded(address: String): BondOutcome
+}
+
+internal enum class BondOutcome {
+    /** Bonded already, or now. */
+    Bonded,
+
+    /** Pairing failed or was declined; the scanner's pairing window is probably closed. */
+    Failed,
+
+    /** Bonding could not be started; setup goes on and Android pairs on the first encrypted operation. */
+    Unavailable,
+}
+
 internal fun interface GattConnector {
     suspend fun connect(address: String): GattConnectOutcome
 }

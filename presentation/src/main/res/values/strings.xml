@@ -30,7 +30,7 @@
     <string name="conn_refused">Another phone is connected to this scanner. Only one phone can be connected at a time.</string>
     <string name="conn_failed_permission">The Bluetooth permission is missing.</string>
     <string name="conn_failed_not_dlidar">This device is not a dLidar scanner.</string>
-    <string name="conn_failed_not_paired">This phone is not paired with the scanner. Open the scanner\'s pairing window, then tap Retry and confirm the pairing.</string>
+    <string name="conn_failed_not_paired">This phone is not paired with the scanner. On the scanner, run tools/pair.sh to open its pairing window for 2 minutes (tools/pair.sh --forget if this phone was paired with it before), then tap Retry and confirm the pairing.</string>
     <string name="conn_failed_other">The connection failed.</string>
     <string name="update_app">The scanner does not speak this app\'s protocol version. Please update the app.</string>
     <string name="update_scanner">The scanner speaks an older protocol version than this app. Please update the scanner.</string>

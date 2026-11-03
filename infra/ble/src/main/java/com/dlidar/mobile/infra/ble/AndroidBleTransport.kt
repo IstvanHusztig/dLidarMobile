@@ -9,8 +9,11 @@ import com.dlidar.mobile.data.protocol.transport.DownReason
 import com.dlidar.mobile.data.protocol.transport.LinkState
 import com.dlidar.mobile.data.protocol.transport.WriteResult
 import com.dlidar.mobile.infra.ble.gatt.AndroidBluetoothAvailability
+import com.dlidar.mobile.infra.ble.gatt.AndroidGattBonder
 import com.dlidar.mobile.infra.ble.gatt.AndroidGattConnector
 import com.dlidar.mobile.infra.ble.gatt.BluetoothAvailability
+import com.dlidar.mobile.infra.ble.gatt.BondOutcome
+import com.dlidar.mobile.infra.ble.gatt.GattBonder
 import com.dlidar.mobile.infra.ble.gatt.GattConnectOutcome
 import com.dlidar.mobile.infra.ble.gatt.GattConnection
 import com.dlidar.mobile.infra.ble.gatt.GattConnector
@@ -30,13 +33,15 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * [ByteTransport] over BLE GATT. The link is reported `Up` only after the services are found,
- * the MTU is negotiated (247 requested) and TX notifications are on, so nothing is written to RX
- * before that. Writes use write-with-response, so GATT does the flow control (an app choice).
- * The scanner needs a bonded phone; when Android's own pairing attempt fails, the link goes down
- * with [DownReason.NotPaired].
+ * the MTU is negotiated (247 requested), the phone is bonded and TX notifications are on, so
+ * nothing is written to RX before that. Writes use write-with-response, so GATT does the flow
+ * control (an app choice). The scanner needs a bonded phone: an unbonded one bonds before TX is
+ * subscribed (one pairing dialog), and when pairing fails the link goes down with
+ * [DownReason.NotPaired].
  */
 class AndroidBleTransport internal constructor(
     private val connector: GattConnector,
+    private val bonder: GattBonder,
     private val availability: BluetoothAvailability,
     private val scope: CoroutineScope,
     private val logger: Logger,
@@ -70,7 +75,7 @@ class AndroidBleTransport internal constructor(
                 is GattConnectOutcome.Failed -> return@withLock fail(outcome.reason)
                 is GattConnectOutcome.Connected -> outcome.connection
             }
-            when (val setup = withTimeoutOrNull(setupTimeout) { setUp(gatt) } ?: Setup.Failed(DownReason.SetupFailed("timeout"))) {
+            when (val setup = withTimeoutOrNull(setupTimeout) { setUp(gatt, target) } ?: Setup.Failed(DownReason.SetupFailed("timeout"))) {
                 is Setup.Failed -> fail(setup.reason)
                 is Setup.Ready -> {
                     val connection = BleConnection(gatt, maxWritePiece = setup.mtu - ATT_HEADER_BYTES, onNotPaired = ::dropNotPaired)
@@ -94,12 +99,17 @@ class AndroidBleTransport internal constructor(
         }
     }
 
-    private suspend fun setUp(gatt: GattConnection): Setup {
+    private suspend fun setUp(gatt: GattConnection, address: String): Setup {
         if (!gatt.discoverServices()) return Setup.Failed(DownReason.SetupFailed("service discovery"))
         if (!gatt.hasScannerService()) return Setup.Failed(DownReason.ServiceNotFound)
         val mtu = gatt.requestMtu(BleUuids.REQUESTED_MTU) ?: run {
             logger.warn(TAG, "MTU request failed; continuing with the default MTU ${BleUuids.DEFAULT_MTU}")
             BleUuids.DEFAULT_MTU
+        }
+        when (bonder.ensureBonded(address)) {
+            BondOutcome.Bonded -> Unit
+            BondOutcome.Failed -> return Setup.Failed(DownReason.NotPaired)
+            BondOutcome.Unavailable -> logger.warn(TAG, "bonding not started; Android pairs on the first encrypted operation")
         }
         return when (gatt.enableTxNotifications()) {
             GattWrite.Ok -> Setup.Ready(mtu)
@@ -186,6 +196,7 @@ class AndroidBleTransport internal constructor(
             val appContext = context.applicationContext
             return AndroidBleTransport(
                 connector = AndroidGattConnector(appContext, logger),
+                bonder = AndroidGattBonder(appContext, logger),
                 availability = AndroidBluetoothAvailability(appContext),
                 scope = scope,
                 logger = logger,
