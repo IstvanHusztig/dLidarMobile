@@ -13,7 +13,7 @@ Each milestone names the scanner-side answers it needs (numbers refer to
 | 4 | Recording control | Start and Stop verified on device against the real scanner without a lidar (start → preparing, stop → idle, sensor failure → error); a real recording is still to test |
 | 5 | Wi-Fi setup | Verified on device against the real scanner: wrong password and a successful join (BLE stayed up); not found tested on the scanner side; joining another network (hotspot) not tested ([wifi-setup.md](design/wifi-setup.md)) |
 | 6 | Logs and diagnostics | Verified on device against the real scanner: the Diagnostics tab pages through the whole log (3 pages, about 0.5 s each, to the start), the Warnings level, boot headers and Share; found and fixed on both sides: BLE pieces over 512 bytes were cut ([logs.md](design/logs.md)) |
-| 7 | Release | Planned |
+| 7 | Release | Started: high-contrast light and dark themes with a switch, verified on device; the rest planned |
 
 ## 2. Real-server bring-up
 - Run the app against the real dLidar service: `hello`, `status.get`, `info.get`, events.
@@ -41,8 +41,15 @@ Each milestone names the scanner-side answers it needs (numbers refer to
 - `log.get` with paging; share the logs from the app.
 - Keep the Link test screen in debug builds only.
 - **Needs answers:** 35.
+- **Done (2026-11-04):** the status screen has the tabs Device (Wi-Fi row, Start/Stop,
+  recording, refresh), Info (Bluetooth address, sensor, IP address, hostname from `info.get`,
+  open question 37) and Diagnostics (scanner log; protocol traffic in debug builds), and a
+  connection dot (green connected, amber connecting, gray otherwise).
 
 ## 7. Release
 - Release signing, CI (build and tests on every push), Play Store listing.
-- Accessibility, dark mode, translations if needed.
+- Accessibility and translations if needed.
+- **Done (2026-11-04):** own high-contrast Material 3 themes (no dynamic color): dark for dark
+  places (true black, white text, bright accents), light with the same contrast; a sun/moon
+  button switches them, the choice is kept, and until then the phone's dark mode is followed.
 - Test on several phones and Android versions (8 to the latest).
