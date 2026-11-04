@@ -81,6 +81,7 @@ fun LogScreen(
 @Composable
 private fun ScannerLog(state: LogUiState, onAction: (LogAction) -> Unit, onShare: () -> Unit) {
     val action by rememberUpdatedState(onAction)
+    val latest by rememberUpdatedState(state)
     LaunchedEffect(Unit) { action(LogAction.Opened) }
     val zone = remember { ZoneId.systemDefault() }
     val list = rememberLazyListState()
@@ -92,10 +93,11 @@ private fun ScannerLog(state: LogUiState, onAction: (LogAction) -> Unit, onShare
         snapshotFlow {
             val layout = list.layoutInfo
             val last = layout.visibleItemsInfo.lastOrNull()?.index ?: -1
-            (last >= layout.totalItemsCount - OLDER_PAGE_MARGIN) to layout.totalItemsCount
+            // The loading state is part of the key, so an ask refused while a read ran is repeated.
+            Triple(last >= layout.totalItemsCount - OLDER_PAGE_MARGIN, layout.totalItemsCount, latest.loading)
         }
             .distinctUntilChanged()
-            .filter { (nearEnd, _) -> nearEnd }
+            .filter { (nearEnd, _, loading) -> nearEnd && loading == Loading.None }
             .collect { action(LogAction.LoadOlder) }
     }
 

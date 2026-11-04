@@ -2,7 +2,6 @@ package com.dlidar.mobile.presentation.log
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.dlidar.mobile.domain.model.LogThreshold
 import com.dlidar.mobile.domain.result.Outcome
 import com.dlidar.mobile.domain.usecase.ObserveScanner
 import com.dlidar.mobile.domain.usecase.ReadScannerLog
@@ -51,6 +50,7 @@ class LogViewModel(
 
     init {
         var scannerId: String? = null
+        var wasLive = false
         access.onEach { input ->
             // Another scanner's lines are not this one's.
             if (input.scannerId != scannerId) {
@@ -58,7 +58,11 @@ class LogViewModel(
                 cancelRead()
                 held.update { HeldLog(threshold = it.threshold) }
             }
-            if (input.access == LogUiState.Access.Live && opened && !held.value.loaded) readNewest()
+            // Each time the scanner can answer again (it may have rebooted or logged meanwhile),
+            // the newest page is read; the lines held stay shown until it arrives.
+            val live = input.access == LogUiState.Access.Live
+            if (live && !wasLive && opened) readNewest()
+            wasLive = live
         }.launchIn(viewModelScope)
     }
 

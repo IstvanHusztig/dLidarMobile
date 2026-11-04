@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -208,6 +209,45 @@ class LogViewModelTest {
         runCurrent()
         assertEquals(2, logReads)
         assertEquals(listOf("started"), viewModel.state.value.texts())
+    }
+
+    @Test
+    fun `after a reconnect to the same scanner the newest page is read again`() = runTest(dispatcher) {
+        fake.log("before the drop")
+        val (viewModel, _) = viewModel()
+        viewModel.onAction(LogAction.Opened)
+        runCurrent()
+
+        fake.dropLink()
+        runCurrent()
+        fake.log("after the reconnect")
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertEquals(LogUiState.Access.Live, viewModel.state.value.access)
+        assertEquals(listOf("after the reconnect", "before the drop"), viewModel.state.value.texts())
+        assertEquals(2, logReads)
+    }
+
+    @Test
+    fun `the answer to a read that was replaced is dropped`() = runTest(dispatcher) {
+        fake.log("info line")
+        fake.log("bad", level = "error")
+        fake.silentCommands += "log.get"
+        val (viewModel, _) = viewModel()
+        viewModel.onAction(LogAction.Opened)
+        runCurrent()
+
+        // The first read hangs; a new level replaces it and answers.
+        fake.silentCommands.clear()
+        viewModel.onAction(LogAction.SetThreshold(LogThreshold.Error))
+        runCurrent()
+        advanceTimeBy(10_000)
+        runCurrent()
+
+        assertEquals(listOf("bad"), viewModel.state.value.texts())
+        assertNull(viewModel.state.value.failure)
+        assertEquals(LogUiState.Loading.None, viewModel.state.value.loading)
     }
 
     @Test
