@@ -26,6 +26,8 @@ import com.dlidar.mobile.infra.wifi.WifiPermissions
 import com.dlidar.mobile.presentation.connect.ConnectAction
 import com.dlidar.mobile.presentation.connect.ConnectScreen
 import com.dlidar.mobile.presentation.connect.ConnectViewModel
+import com.dlidar.mobile.presentation.log.LogScreen
+import com.dlidar.mobile.presentation.log.LogViewModel
 import com.dlidar.mobile.presentation.status.StatusAction
 import com.dlidar.mobile.presentation.status.StatusScreen
 import com.dlidar.mobile.presentation.status.StatusViewModel
@@ -155,10 +157,29 @@ private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onW
     // Also after the Wi-Fi setup, which may have changed the scanner's network.
     LaunchedEffect(Unit) { viewModel.onAction(StatusAction.Shown) }
 
-    StatusScreen(state, logTab = if (DebugTools.trafficLogAvailable) ({ DebugTools.TrafficLogTab() }) else null, onWifiSetup = onWifiSetup) { action ->
+    StatusScreen(state, diagnosticsTab = { LogRoute(container) }, onWifiSetup = onWifiSetup) { action ->
         viewModel.onAction(action)
         if (action is StatusAction.Disconnect) onDisconnected()
     }
+}
+
+@Composable
+private fun LogRoute(container: AppContainer) {
+    val viewModel = viewModel { LogViewModel(container.observeScanner, container.readScannerLog) }
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    LogScreen(
+        state = state,
+        onAction = viewModel::onAction,
+        onShare = {
+            val send = Intent(Intent.ACTION_SEND)
+                .setType("text/plain")
+                .putExtra(Intent.EXTRA_SUBJECT, "dLidar log")
+                .putExtra(Intent.EXTRA_TEXT, viewModel.exportText())
+            context.startActivity(Intent.createChooser(send, null))
+        },
+        traffic = if (DebugTools.trafficLogAvailable) ({ DebugTools.TrafficLogTab() }) else null,
+    )
 }
 
 @Composable

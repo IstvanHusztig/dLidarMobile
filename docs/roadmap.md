@@ -12,7 +12,7 @@ Each milestone names the scanner-side answers it needs (numbers refer to
 | 3 | Pairing and bonding | Fresh pairing verified on device: one dialog, bond before subscribing; failed pairing handled with the `pair.sh --forget` hint ([pairing.md](design/pairing.md)); the scanner's pairing button is coming |
 | 4 | Recording control | Start and Stop verified on device against the real scanner without a lidar (start → preparing, stop → idle, sensor failure → error); a real recording is still to test |
 | 5 | Wi-Fi setup | Verified on device against the real scanner: wrong password and a successful join (BLE stayed up); not found tested on the scanner side; joining another network (hotspot) not tested ([wifi-setup.md](design/wifi-setup.md)) |
-| 6 | Logs and diagnostics | Planned |
+| 6 | Logs and diagnostics | Verified on device against the real scanner: the Diagnostics tab pages through the whole log (3 pages, about 0.5 s each, to the start), the Warnings level, boot headers and Share; found and fixed on both sides: BLE pieces over 512 bytes were cut ([logs.md](design/logs.md)) |
 | 7 | Release | Planned |
 
 ## 2. Real-server bring-up

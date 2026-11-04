@@ -3,6 +3,7 @@ package com.dlidar.mobile.data.scanner.dto
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 // Wire shapes of protocol v1. Enum-like fields stay strings here; the mappers turn unknown
 // values into generic ones. Unknown fields are ignored by ScannerJson.
@@ -31,6 +32,26 @@ internal data class WifiStatusDto(
     val ssid: String? = null,
     val ip: String? = null,
     val last: LastJoinDto? = null,
+)
+
+/**
+ * The answer to log.get. Entries are read one by one ([LogEntryDto]), so one entry of an
+ * unexpected shape does not cost the page.
+ */
+@Serializable
+internal data class LogPageDto(
+    val entries: List<JsonObject>,
+    val more: String? = null,
+)
+
+/** [t] is Unix milliseconds from the Pi's clock. */
+@Serializable
+internal data class LogEntryDto(
+    val t: Long,
+    val boot: String,
+    val level: String,
+    val source: String,
+    val text: String,
 )
 
 /** [result] is "pending", "connected" or an error code. */

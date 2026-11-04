@@ -5,6 +5,7 @@ import com.dlidar.mobile.data.protocol.session.DefaultProtocolSessionFactory
 import com.dlidar.mobile.data.protocol.transport.ByteTransport
 import com.dlidar.mobile.data.scanner.ReconnectPolicy
 import com.dlidar.mobile.data.scanner.ScannerRepositoryImpl
+import com.dlidar.mobile.data.scanner.log.ScannerLogImpl
 import com.dlidar.mobile.data.scanner.wifi.ScannerWifiImpl
 import com.dlidar.mobile.domain.port.Clock
 import com.dlidar.mobile.domain.usecase.ConnectScanner
@@ -14,6 +15,7 @@ import com.dlidar.mobile.domain.usecase.FindScanners
 import com.dlidar.mobile.domain.usecase.ObserveScanner
 import com.dlidar.mobile.domain.usecase.RefreshStatus
 import com.dlidar.mobile.domain.usecase.JoinWifi
+import com.dlidar.mobile.domain.usecase.ReadScannerLog
 import com.dlidar.mobile.domain.usecase.ReadScannerWifi
 import com.dlidar.mobile.domain.usecase.ScanWifiNetworks
 import com.dlidar.mobile.domain.usecase.StartRecording
@@ -58,6 +60,8 @@ class AppContainer(context: Context) {
     val scanWifiNetworks = ScanWifiNetworks(AndroidWifiNetworkScanner(context))
     val joinWifi = JoinWifi(scannerWifi)
     val readScannerWifi = ReadScannerWifi(scannerWifi)
+
+    val readScannerLog = ReadScannerLog(ScannerLogImpl(repository, logger))
 
     init {
         DebugTools.start(this)

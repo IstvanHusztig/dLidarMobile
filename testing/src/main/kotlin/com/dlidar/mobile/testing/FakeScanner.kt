@@ -30,7 +30,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 /**
  * Plays the scanner's side of the link, following protocol v1: it reassembles written pieces,
  * answers hello, status.get (with the recording's warnings and the last summary), info.get,
- * recording.start, recording.stop, wifi.connect and wifi.status (only when hello lists them,
+ * recording.start, recording.stop, wifi.connect, wifi.status and log.get (only when hello lists them,
  * as an older scanner answers unknown_command), numbers events from 1 per connection, and splits
  * everything it sends into notifications of at most MTU-3 bytes, each message starting in a
  * fresh notification.
@@ -109,6 +109,32 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
     private var runningJoin: RunningJoin? = null
 
     private class RunningJoin(val op: JsonElement, val ssid: String, val connection: Any?, val before: Pair<String, String?>)
+
+    // --- Log -----------------------------------------------------------------------------------
+
+    /** The service's log, oldest first; [log] adds a line. */
+    val logLines: MutableList<JsonObject> = CopyOnWriteArrayList()
+
+    var logBoot = "36276c97"
+
+    /** At most this many lines in one answer, as when long lines fill the 16 KiB message. */
+    var logLinesPerAnswer = Int.MAX_VALUE
+
+    /** Lines one request looks at, of any level; a rare level then gives short or empty pages. */
+    var logScanWindow = Int.MAX_VALUE
+
+    /** Non-null: log.get answers `unavailable` with this message. */
+    var logUnavailable: String? = null
+
+    fun log(text: String, level: String = "info", source: String = "dlidar", t: Long = 1_793_781_326_000L + logLines.size * 1000L) {
+        logLines += buildJsonObject {
+            put("t", t)
+            put("boot", logBoot)
+            put("level", level)
+            put("source", source)
+            put("text", text)
+        }
+    }
 
     /** Every piece written, in order, across connections. */
     val writtenPieces: MutableList<ByteArray> = CopyOnWriteArrayList()
@@ -269,6 +295,7 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
             "wifi.status" -> if (lists(cmd)) respond(id, wifiStatus()) else respondError(id, "unknown_command", "unknown command")
             "recording.start" -> if (lists(cmd)) recordingStart(id) else respondError(id, "unknown_command", "unknown command")
             "recording.stop" -> if (lists(cmd)) recordingStop(id) else respondError(id, "unknown_command", "unknown command")
+            "log.get" -> if (lists(cmd)) logGet(id, request["args"] as? JsonObject) else respondError(id, "unknown_command", "unknown command")
             else -> respondError(id, "unknown_command", "unknown command")
         }
     }
@@ -344,6 +371,50 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
                     put("message", if (result == "failed") "dLidar may not change the network: install systemd/50-dlidar-network.rules" else result)
                 })
             }
+        })
+    }
+
+    /**
+     * Spec: newest first; `before` is the cursor of an earlier answer's `more`, and a cursor
+     * stays valid while new lines arrive. Here a cursor is "s=<index>": the page holds lines
+     * below that index.
+     */
+    private fun logGet(id: JsonElement, args: JsonObject?) {
+        val before = args?.get("before")
+        val limit = args?.get("limit")
+        val level = args?.get("level")
+        val start = (before as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ?.removePrefix("s=")?.toIntOrNull()?.takeIf { it in 0..logLines.size }
+        val limitValue = (limit as? JsonPrimitive)?.takeUnless { it.isString }?.content?.toIntOrNull()
+        val threshold = (level as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(LOG_LEVELS::indexOf)
+        val badRequest = when {
+            before != null && (before !is JsonPrimitive || !before.isString) -> "\"before\" must be a string"
+            before != null && start == null -> "\"before\" is not a cursor from an earlier answer"
+            limit != null && (limitValue == null || limitValue !in 1..200) -> "\"limit\" must be an integer from 1 to 200"
+            level != null && (threshold == null || threshold < 0) -> "\"level\" must be info, warning or error"
+            else -> null
+        }
+        if (badRequest != null) {
+            violations += "bad log.get: $badRequest"
+            return respondError(id, "bad_request", badRequest)
+        }
+        logUnavailable?.let { return respondError(id, "unavailable", it) }
+        val lowest = threshold ?: 0
+        val wanted = minOf(limitValue ?: 50, logLinesPerAnswer)
+        var index = start ?: logLines.size
+        var looked = 0
+        val entries = mutableListOf<JsonObject>()
+        while (index > 0 && entries.size < wanted && looked < logScanWindow) {
+            index--
+            looked++
+            val line = logLines[index]
+            // A level the fake does not know counts as info.
+            val rank = LOG_LEVELS.indexOf((line["level"] as? JsonPrimitive)?.content).coerceAtLeast(0)
+            if (rank >= lowest) entries += line
+        }
+        respond(id, buildJsonObject {
+            put("entries", JsonArray(entries))
+            put("more", if (index > 0) "s=$index" else null)
         })
     }
 
@@ -483,13 +554,22 @@ class FakeScanner(var mtu: Int = 247) : ByteTransport {
         /** Spec: status.get lists the 16 newest warnings. */
         const val MAX_STATUS_WARNINGS = 16
 
-        val CURRENT_COMMANDS = listOf("hello", "status.get", "info.get", "recording.start", "recording.stop", "wifi.connect", "wifi.status")
+        val CURRENT_COMMANDS = listOf("hello", "status.get", "info.get", "recording.start", "recording.stop", "wifi.connect", "wifi.status", "log.get")
+
+        /** The commands of a scanner from before log.get. */
+        val WIFI_COMMANDS = listOf("hello", "status.get", "info.get", "recording.start", "recording.stop", "wifi.connect", "wifi.status")
 
         /** The commands of a scanner from before Wi-Fi setup. */
         val RECORDING_COMMANDS = listOf("hello", "status.get", "info.get", "recording.start", "recording.stop")
 
         /** Spec: the only documented arguments; anything else is bad_request. */
-        private val DOCUMENTED_ARGS = mapOf("wifi.connect" to setOf("ssid", "security", "psk"))
+        private val DOCUMENTED_ARGS = mapOf(
+            "wifi.connect" to setOf("ssid", "security", "psk"),
+            "log.get" to setOf("before", "limit", "level"),
+        )
+
+        /** Spec: levels from lowest to highest. */
+        private val LOG_LEVELS = listOf("info", "warning", "error")
 
         /** The commands of a scanner from before recording control. */
         val OLD_COMMANDS = listOf("hello", "status.get", "info.get")

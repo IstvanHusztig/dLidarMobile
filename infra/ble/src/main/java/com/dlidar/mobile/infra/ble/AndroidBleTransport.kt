@@ -78,7 +78,7 @@ class AndroidBleTransport internal constructor(
             when (val setup = withTimeoutOrNull(setupTimeout) { setUp(gatt, target) } ?: Setup.Failed(DownReason.SetupFailed("timeout"))) {
                 is Setup.Failed -> fail(setup.reason)
                 is Setup.Ready -> {
-                    val connection = BleConnection(gatt, maxWritePiece = setup.mtu - ATT_HEADER_BYTES, onNotPaired = ::dropNotPaired)
+                    val connection = BleConnection(gatt, maxWritePiece = writePiece(setup.mtu), onNotPaired = ::dropNotPaired)
                     adopted = true
                     active = connection
                     linkState.value = LinkState.Up(connection)
@@ -191,6 +191,14 @@ class AndroidBleTransport internal constructor(
     companion object {
         private const val TAG = "Ble"
         private const val ATT_HEADER_BYTES = 3
+        /** Bluetooth: an attribute value is at most 512 bytes, even when MTU-3 is more. */
+        private const val MAX_ATTRIBUTE_BYTES = 512
+
+        /**
+         * Android 14 and newer negotiate MTU 517 whatever the app asks for, and MTU-3 is then 514:
+         * a longer piece is rejected or cut on the way, so pieces stop at 512 bytes.
+         */
+        internal fun writePiece(mtu: Int): Int = minOf(mtu - ATT_HEADER_BYTES, MAX_ATTRIBUTE_BYTES)
 
         fun create(context: Context, scope: CoroutineScope, logger: Logger): AndroidBleTransport {
             val appContext = context.applicationContext

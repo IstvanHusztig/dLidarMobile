@@ -77,6 +77,17 @@ class StatusScreenTest {
     }
 
     @Test
+    fun `refresh sits on the Device tab only`() {
+        val actions = mutableListOf<StatusAction>()
+        compose.setContent { StatusScreen(live, onAction = { actions += it }) }
+        compose.onNodeWithContentDescription("Refresh").performClick()
+        assertEquals(listOf<StatusAction>(StatusAction.Refresh), actions)
+
+        compose.onNodeWithText("Info").performClick()
+        compose.onNodeWithContentDescription("Refresh").assertDoesNotExist()
+    }
+
+    @Test
     fun `an unknown recording state is shown generically`() {
         compose.setContent { StatusScreen(live.copy(status = live.status!!.copy(state = RecordingState.Unknown("calibrating"))), onAction = {}) }
         compose.onNodeWithText("Unknown (calibrating)").assertExists()
@@ -86,7 +97,7 @@ class StatusScreenTest {
     fun `update the app is shown when the scanner is newer`() {
         compose.setContent { StatusScreen(live.copy(updateAppRequired = true), onAction = {}) }
         compose.onNodeWithText("Please update the app.", substring = true).assertExists()
-        compose.onNodeWithText("Refresh").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Refresh").assertDoesNotExist()
     }
 
     @Test
@@ -99,7 +110,7 @@ class StatusScreenTest {
     fun `a scanner that does not answer is explained`() {
         compose.setContent { StatusScreen(live.copy(notAnswering = true), onAction = {}) }
         compose.onNodeWithText("does not answer", substring = true).assertExists()
-        compose.onNodeWithText("Refresh").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Refresh").assertDoesNotExist()
     }
 
     @Test
@@ -144,10 +155,10 @@ class StatusScreenTest {
     }
 
     @Test
-    fun `the Log tab shows the log the app offers, or a note`() {
+    fun `the Diagnostics tab shows the log the app offers, or a note`() {
         var offered by mutableStateOf(false)
-        compose.setContent { StatusScreen(live, logTab = if (offered) ({ Text("traffic entries") }) else null, onAction = {}) }
-        compose.onNodeWithText("Log").performClick()
+        compose.setContent { StatusScreen(live, diagnosticsTab = if (offered) ({ Text("traffic entries") }) else null, onAction = {}) }
+        compose.onNodeWithText("Diagnostics").performClick()
         compose.onNodeWithText("Scanner logs come in a later version.").assertExists()
 
         offered = true

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -65,8 +66,8 @@ import java.time.Instant
 @Composable
 fun StatusScreen(
     state: StatusUiState,
-    /** The Log tab's content; null shows a note that logs are not available yet. */
-    logTab: (@Composable () -> Unit)? = null,
+    /** The Diagnostics tab's content; null shows a note that logs are not available yet. */
+    diagnosticsTab: (@Composable () -> Unit)? = null,
     onWifiSetup: () -> Unit = {},
     onAction: (StatusAction) -> Unit,
 ) {
@@ -81,13 +82,6 @@ fun StatusScreen(
                     }
                 },
                 actions = {
-                    if (state.isLive && !state.updateAppRequired && !state.updateScannerRequired && !state.notAnswering) {
-                        val refresh = stringResource(R.string.action_refresh)
-                        TextButton(
-                            onClick = { onAction(StatusAction.Refresh) },
-                            modifier = Modifier.semantics { contentDescription = refresh },
-                        ) { Text("⟳", style = MaterialTheme.typography.titleLarge) }
-                    }
                     TextButton(onClick = { onAction(StatusAction.Disconnect) }) { Text(stringResource(R.string.action_disconnect)) }
                 },
             )
@@ -112,14 +106,18 @@ fun StatusScreen(
                     items(state.warnings, key = { it.id }) { warning -> WarningCard(warning, onAction) }
                     if (state.showWifiSetup) item { WifiRow(state, onWifiSetup) }
                     if (state.showRecordingControls) item { RecordingControls(state, onAction) }
-                    item { RecordingCard(state.status, state.freeBytes, state.isLive) }
+                    item {
+                        // Refreshes what this tab shows: the status and the Wi-Fi row.
+                        val canRefresh = state.isLive && !state.updateAppRequired && !state.updateScannerRequired && !state.notAnswering
+                        RecordingCard(state.status, state.freeBytes, state.isLive, onRefresh = { onAction(StatusAction.Refresh) }.takeIf { canRefresh })
+                    }
                     state.summary?.let { summary -> item { SummaryCard(summary) } }
                 }
                 StatusTab.Info -> TabList {
                     item { ScannerCard(state) }
                 }
-                StatusTab.Log -> Box(Modifier.fillMaxSize()) {
-                    if (logTab != null) logTab()
+                StatusTab.Diagnostics -> Box(Modifier.fillMaxSize()) {
+                    if (diagnosticsTab != null) diagnosticsTab()
                     else Text(stringResource(R.string.log_not_available), modifier = Modifier.padding(16.dp))
                 }
             }
@@ -130,7 +128,7 @@ fun StatusScreen(
 private enum class StatusTab(@StringRes val title: Int) {
     Device(R.string.tab_device),
     Info(R.string.tab_info),
-    Log(R.string.tab_log),
+    Diagnostics(R.string.tab_diagnostics),
 }
 
 @Composable
@@ -266,9 +264,9 @@ private fun commandFailureText(failure: StatusUiState.CommandFailure): String = 
 }
 
 @Composable
-private fun RecordingCard(status: ScannerStatus?, freeBytes: Long?, isLive: Boolean) {
+private fun RecordingCard(status: ScannerStatus?, freeBytes: Long?, isLive: Boolean, onRefresh: (() -> Unit)?) {
     val waiting = stringResource(R.string.value_waiting)
-    InfoCard(stringResource(R.string.section_recording)) {
+    InfoCard(stringResource(R.string.section_recording), action = onRefresh?.let { { RefreshButton(it) } }) {
         Field(stringResource(R.string.label_state), status?.state?.let { recordingStateLabel(it) } ?: waiting, emphasize = isLive)
         Field(stringResource(R.string.label_chunks), status?.chunks?.let(Formatters::count) ?: waiting)
         Field(stringResource(R.string.label_points), status?.points?.let(Formatters::count) ?: waiting)
@@ -333,12 +331,29 @@ private fun ScannerCard(state: StatusUiState) {
 }
 
 @Composable
-private fun InfoCard(title: String, content: @Composable () -> Unit) {
+private fun InfoCard(title: String, action: (@Composable () -> Unit)? = null, content: @Composable () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            SectionTitle(title)
+            if (action == null) {
+                SectionTitle(title)
+            } else {
+                // The button keeps its touch size, so this row is taller than a plain title.
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { SectionTitle(title) }
+                    // Shifted by the button's own padding, so the icon lines up with the values below.
+                    Box(Modifier.offset(x = 22.dp)) { action() }
+                }
+            }
             content()
         }
+    }
+}
+
+@Composable
+private fun RefreshButton(onClick: () -> Unit) {
+    val refresh = stringResource(R.string.action_refresh)
+    TextButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = refresh }) {
+        Text("⟳", style = MaterialTheme.typography.titleLarge)
     }
 }
 

@@ -102,6 +102,14 @@ class AndroidBleTransportTest {
     }
 
     @Test
+    fun `write pieces stop at the 512 byte attribute limit`() {
+        assertEquals(244, AndroidBleTransport.writePiece(247))
+        assertEquals(512, AndroidBleTransport.writePiece(515))
+        // Android 14 and newer negotiate 517 whatever the app asks for.
+        assertEquals(512, AndroidBleTransport.writePiece(517))
+    }
+
+    @Test
     fun `a failed MTU request continues with the default MTU`() = runTest {
         val transport = transport(FakeGattConnection(negotiatedMtu = null), backgroundScope)
         val connection = (transport.connect("AA") as ConnectResult.Connected).connection

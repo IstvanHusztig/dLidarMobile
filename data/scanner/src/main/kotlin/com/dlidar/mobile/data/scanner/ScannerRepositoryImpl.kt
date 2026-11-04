@@ -288,7 +288,7 @@ class ScannerRepositoryImpl(
             session = sessionFactory.create(connection, handler, this)
             try {
                 record(ScannerInput.CompatibilityResolved(Compatibility.Unknown))
-                record(ScannerInput.FeaturesKnown(recordingControl = false, wifiSetup = false))
+                record(ScannerInput.FeaturesKnown(recordingControl = false, wifiSetup = false, log = false))
                 record(ScannerInput.ConnectionChanged(ConnectionState.Connected))
                 session.start()
                 val goLive: () -> Unit = {

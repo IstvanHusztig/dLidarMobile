@@ -11,6 +11,7 @@ import com.dlidar.mobile.data.scanner.ScannerInput
 import com.dlidar.mobile.data.scanner.StatusRefresher
 import com.dlidar.mobile.data.scanner.command.HelloCommand
 import com.dlidar.mobile.data.scanner.command.InfoGetCommand
+import com.dlidar.mobile.data.scanner.command.LogGetCommand
 import com.dlidar.mobile.data.scanner.command.RECORDING_COMMANDS
 import com.dlidar.mobile.data.scanner.command.WIFI_COMMANDS
 import com.dlidar.mobile.domain.model.Compatibility
@@ -53,7 +54,13 @@ internal class SessionHandshake(
         // An older scanner answers these commands with unknown_command, so they are offered
         // only when hello lists them.
         val commands = (hello as? CallResult.Success)?.value?.commands.orEmpty()
-        record(ScannerInput.FeaturesKnown(commands.containsAll(RECORDING_COMMANDS), commands.containsAll(WIFI_COMMANDS)))
+        record(
+            ScannerInput.FeaturesKnown(
+                recordingControl = commands.containsAll(RECORDING_COMMANDS),
+                wifiSetup = commands.containsAll(WIFI_COMMANDS),
+                log = LogGetCommand.NAME in commands,
+            ),
+        )
         onReady()
         refresher.start()
         refresher.request()

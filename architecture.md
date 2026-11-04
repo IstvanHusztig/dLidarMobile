@@ -109,6 +109,9 @@ interface ScannerWifi {                              // implemented by ScannerWi
     suspend fun status(): Outcome<ScannerWifiStatus>
 }
 fun interface WifiNetworkScanner { suspend fun scan(): WifiScan }   // the phone's own scan
+interface ScannerLog {                               // implemented by ScannerLogImpl in :data:scanner
+    suspend fun read(older: LogCursor?, threshold: LogThreshold): Outcome<LogPage>
+}
 fun interface Clock { fun now(): Instant }
 ```
 Wi-Fi types: `WifiNetwork`, `WifiSecurity` (`Wpa2Psk`, `Wpa3Sae`, `Open`, `Unsupported(kind)`),
@@ -117,16 +120,17 @@ Wi-Fi types: `WifiNetwork`, `WifiSecurity` (`Wpa2Psk`, `Wpa3Sae`, `Open`, `Unsup
 `Failed(message)`, `Unknown`), `ScannerWifiStatus` and `WifiScan`. `WifiCredentials` holds the
 scanner's rules (SSID 1 to 32 bytes; password 8 to 63 printable ASCII or 64 hex; none for open
 networks) and `NetworkListMerger` merges the phone's scan results.
+Log types: `LogEntry(time, boot, level, source, text)`, `LogLevel` and `LogSource` (with
+`Unknown(raw)`), `LogThreshold`, the opaque `LogCursor` and `LogPage(entries, older)`.
 `connect` and `disconnect` only express intent. The connection lifecycle runs in a
 `CoroutineScope` that `:app` injects into the repository, and lives as long as the application.
 
 ### Use cases (one class each, an `operator fun invoke`, no Android, no I/O details)
 `FindScanners`, `ConnectScanner`, `DisconnectScanner`, `ObserveScanner`, `RefreshStatus`,
 `DismissWarning`, `StartRecording`, `StopRecording`, `ScanWifiNetworks` (merges the list),
-`JoinWifi` (checks `WifiCredentials` first, so a bad request is never sent) and
-`ReadScannerWifi`. They are thin today and share one file. Rules that belong to a use case go
-here, not into ViewModels or repositories.
-Later: `ReadLog`.
+`JoinWifi` (checks `WifiCredentials` first, so a bad request is never sent),
+`ReadScannerWifi` and `ReadScannerLog`. They are thin today and share one file. Rules that
+belong to a use case go here, not into ViewModels or repositories.
 
 ### Error model
 ```kotlin
@@ -157,7 +161,7 @@ interface ByteTransport {
     suspend fun disconnect()
 }
 interface ByteConnection {                          // valid while link is Up with it
-    val maxWritePiece: Int                          // MTU - 3
+    val maxWritePiece: Int                          // MTU - 3, at most 512
     val incoming: Flow<ByteArray>                   // notifications in order; completes when the link ends
     suspend fun write(piece: ByteArray): WriteResult
 }
@@ -224,8 +228,9 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
 | `SessionHandshake` | Every link up: `hello` first, because its answer decides compatibility, then `status.get` (through the refresher) and `info.get` together. If `hello` returns `unknown_command`, or times out after the scanner sent any protocol message, compatibility is `Unknown` and the rest still goes out, because `hello` is optional. If it times out and nothing the scanner sent was a protocol message, compatibility is `NotAnswering` and only `hello` is repeated, every 30 s (app choice), so a scanner running its echo service is not flooded. On `unsupported_version` or a protocol other than 1, nothing more is sent. |
 | `SessionSignalHandler` | Routes a session's signals: events become inputs through the decoders, gaps a refresh; a `result` event goes to the session's `PendingOperations` by its `op`; `too_many_clients` and `StreamBroken` end the session. |
 | `PendingOperations` | Per session: requests whose outcome comes later in a `result` event. A request registers its id through `call(onSent = …)` before it is written and forgets it when it stops waiting; when the session ends, every waiting request ends without a result. |
-| `LiveSessionSource` | The narrow view of the repository a feature beside it needs (the live session and the snapshot); `ScannerWifiImpl` depends on it, not on the repository. |
+| `LiveSessionSource` | The narrow view of the repository a feature beside it needs (the live session and the snapshot); `ScannerWifiImpl` and `ScannerLogImpl` depend on it, not on the repository. |
 | `ScannerWifiImpl : ScannerWifi` | `wifi.connect` (`psk` in `sensitiveArgs`, so it never reaches a log) and `wifi.status` on the live session. A join waits for its `result` event up to the answer's `timeout_s` plus 10 s (app choice). When the event cannot come (the link dropped, which joining may cause on the Pi's shared radio) or does not come in time, it reads `wifi.status` after the reconnect: `last` `"pending"` is asked again every 2 s. One deadline (`timeout_s` plus 40 s) covers it all. A `last` for another SSID, or none, is `Unknown`; when the answer was lost too, an unchanged `last` (read before sending) is `Unknown` unless it was seen pending. Offered only when `hello` lists both commands (`NotSupported` otherwise). |
+| `ScannerLogImpl : ScannerLog` | `log.get` on the live session: 100 lines per request (app choice), the lowest level always named, `before` from the previous answer's `more`. An answer can hold fewer lines than asked, even none, while `more` is not null, so a read asks again with the new cursor until it has lines or the start of the log, at most 5 requests (app choice). An entry of an unexpected shape is skipped. Offered only when `hello` lists `log.get` (`NotSupported` otherwise). See [docs/design/logs.md](docs/design/logs.md). |
 | `CallRetry` | *App policy:* `status.get` and `info.get` must get through on every connection, so a timeout or `busy` is retried after 1, 2, 4, 8 s. Other failures are not, because the answer would not change. |
 | `ScannerEventDecoders` | Registry of `ScannerEventDecoder`s (`state`, `warning`, `progress`, `summary`). A new event is a new decoder (OCP). Unknown events are ignored, and events whose data does not fit are logged. |
 | `ScannerStateReducer` | A pure function `(ScannerSnapshot, ScannerInput) -> ScannerSnapshot`. Inputs carry their own time, so the reducer needs no clock. *App choices:* a `state` event keeps the last `freeBytes`; `progress` before any status is dropped; warnings are capped at the newest 20, and a warning with the same kind and text is shown once; the warning list of `status.get` replaces the shown one, keeping the id and time of warnings already shown; a different scanner starts from an empty snapshot. |
@@ -262,6 +267,9 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
   30 s for `ACTION_BOND_STATE_CHANGED`.
 - Writes use write-with-response, so GATT does the flow control (an app choice; open
   question 4).
+- A write piece is MTU-3 bytes, but at most 512: an attribute value is at most 512 bytes, and
+  Android 14 and newer negotiate MTU 517 whatever the app asks for. Android also delivers at
+  most 512 bytes of a notification, so the scanner caps its notifications the same way.
 - `BleScannerFinder : ScannerFinder` scans with a filter on the service UUID only (the scanner
   always advertises it in the advertisement itself; the name may change), and reports missing permissions, Bluetooth off and location off (Android 11 and
   older) as problems.
@@ -282,7 +290,8 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
 - ViewModels get their use cases through the constructor and depend on nothing else.
 - Screens are stateless composables `(UiState, (Action) -> Unit)`, previewable and testable.
   Text comes from string resources; numbers go through the pure `Formatters`.
-- Screens: `ConnectScreen` and `StatusScreen`. Fixing a problem (permissions, turning on
+- Screens: `ConnectScreen`, `StatusScreen` (tabs Device, Info and Diagnostics), `WifiSetupScreen`, and
+  `LogScreen` inside the Diagnostics tab. Fixing a problem (permissions, turning on
   Bluetooth, location settings) needs the Activity, so the screen hands it to `:app`.
 - The echo test service (`anything`, `info`, `flood N SIZE`) does not speak protocol v1. Its
   console lives in `:debug:linktest`, which uses `ByteTransport`, `FrameSplitter` and
@@ -290,8 +299,8 @@ Events reach the listener as raw `ProtocolEvent`s; decoding them is a scanner co
 - The protocol traffic log lives in `:debug:traffic`. `DefaultProtocolSession` reports every
   complete message to a `TrafficListener` port (sent lines with sensitive args already
   redacted, received lines, dropped messages); `TrafficLog` keeps the last 1000 in memory,
-  together with the link changes. `StatusScreen` shows a **Log** button only when `:app`
-  passes a handler, which it does in debug builds.
+  together with the link changes. In debug builds `:app` passes it to `LogScreen`, which
+  then offers "Protocol traffic" beside the scanner log.
 
 ---
 
@@ -362,7 +371,7 @@ Send:
 - **Pairing and bonds:** see [docs/design/pairing.md](docs/design/pairing.md).
 - **Wi-Fi setup** (built): see [docs/design/wifi-setup.md](docs/design/wifi-setup.md).
 - **`wifi.forget` and a list of saved networks:** later scanner commands.
-- **`log.get` paging:** a `LogRepository` port with a paged `Flow`.
+- **`log.get` paging** (built): see [docs/design/logs.md](docs/design/logs.md).
 
 ---
 
@@ -372,11 +381,12 @@ Send:
 |---|---|
 | `:data:protocol` | Framing (split pieces, merged pieces, a multibyte character split across pieces, oversized lines, invalid UTF-8), codec (unknown fields, `id:null`, events, non-protocol lines), dispatcher (ids, wrapping, order), sequencer (jumps, `dropped`, missing seq), session (matching, several requests in flight, timeouts, late responses, error codes, link drop, size limit, `onAnswer` before later events). |
 | `:data:scanner` | Mappers (unknown enums), compatibility, reconnect policy, event decoders, reducer, and the repository against `FakeScanner`: `status.get` after every connect and on gaps, merged refreshes, retried first fetches, reconnects and backoff, waiting for Bluetooth, `too_many_clients` (also just before a drop), update-app and a hello of unexpected shape, quick connect/disconnect sequences, unknown fields and values, and a whole recording (preparing → recording → progress → finalizing → idle → summary) at a small MTU. |
-| `:testing` / `:infra:ble` | `ByteTransportContract` runs against `FakeScanner` and against `AndroidBleTransport` with a `FakeGattConnection`; the BLE setup order and its failures are tested on the JVM. `AndroidGattConnection` itself needs a device. |
+| `:testing` / `:infra:ble` | `ByteTransportContract` runs against `FakeScanner` and against `AndroidBleTransport` with a `FakeGattConnection`; the BLE setup order and its failures, and the 512-byte cap on write pieces, are tested on the JVM. `AndroidGattConnection` itself needs a device. |
 | `:data:scanner` (Wi-Fi) | `ScannerWifiImpl` against `FakeScanner`, which plays the Wi-Fi contract: every result, busy, an open network without psk, the psk never in a log, a result lost with the link and read from `wifi.status`, a join still pending after the reconnect, no result at all (`Unknown`), unavailable Wi-Fi, an older scanner. |
+| `:data:scanner` (log) | `ScannerLogImpl` against `FakeScanner`, which plays `log.get` with stable cursors: paging to the start, short pages, empty pages paged through (and the 5-request cap), the level argument, an entry of unexpected shape, `unavailable`, an older scanner, no live session, a link lost during a read. |
 | `:domain` | `WifiCredentials`, `NetworkListMerger`, `WifiPassword`, `JoinWifi`. |
 | `:infra:wifi` | `SecurityTypeResolver` (a table of real capabilities strings) and `ScanThrottle`. The scan itself needs a device. |
-| `:presentation` | `StatusViewModel` and `WifiSetupViewModel` on the real repository and protocol stack against `FakeScanner`; `ConnectViewModel` with a fake finder; `StatusScreen`, `WifiSetupScreen` and `JoinForm` with Compose UI tests under Robolectric (the form is tested outside its dialog: a text field in a dialog window never idles under Robolectric); `Formatters`. |
+| `:presentation` | `StatusViewModel`, `WifiSetupViewModel` and `LogViewModel` on the real repository and protocol stack against `FakeScanner`; `ConnectViewModel` with a fake finder; `StatusScreen`, `WifiSetupScreen`, `LogScreen` and `JoinForm` with Compose UI tests under Robolectric (the form is tested outside its dialog: a text field in a dialog window never idles under Robolectric); `Formatters` and `LogExport`. |
 | `:debug:linktest` | `FloodMeter`. |
 | `:debug:traffic` | `TrafficLog` (order, capacity, link changes, export limit). |
 

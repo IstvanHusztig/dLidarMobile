@@ -1,6 +1,9 @@
 package com.dlidar.mobile.domain.usecase
 
 import com.dlidar.mobile.domain.model.Discovery
+import com.dlidar.mobile.domain.model.LogCursor
+import com.dlidar.mobile.domain.model.LogPage
+import com.dlidar.mobile.domain.model.LogThreshold
 import com.dlidar.mobile.domain.model.NetworkListMerger
 import com.dlidar.mobile.domain.model.ScannerWifiStatus
 import com.dlidar.mobile.domain.model.WifiCredentials
@@ -8,6 +11,7 @@ import com.dlidar.mobile.domain.model.WifiJoinResult
 import com.dlidar.mobile.domain.model.WifiNetwork
 import com.dlidar.mobile.domain.model.WifiPassword
 import com.dlidar.mobile.domain.model.WifiScan
+import com.dlidar.mobile.domain.port.ScannerLog
 import com.dlidar.mobile.domain.port.ScannerWifi
 import com.dlidar.mobile.domain.port.WifiNetworkScanner
 import com.dlidar.mobile.domain.result.DomainError
@@ -78,6 +82,10 @@ class JoinWifi(private val wifi: ScannerWifi) {
 
 class ReadScannerWifi(private val wifi: ScannerWifi) {
     suspend operator fun invoke(): Outcome<ScannerWifiStatus> = wifi.status()
+}
+
+class ReadScannerLog(private val log: ScannerLog) {
+    suspend operator fun invoke(older: LogCursor?, threshold: LogThreshold): Outcome<LogPage> = log.read(older, threshold)
 }
 
 class DismissWarning(private val repository: ScannerRepository) {

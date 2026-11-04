@@ -275,6 +275,14 @@ spec (docs/phone-protocol.md on the scanner side), *provisional* ones may still 
 
    **Scanner answer (2026-11-02):** Not designed yet.
 
+   **Scanner answer (2026-11-04):** Binding (dLidar's docs/phone-protocol.md, section `log.get`; build 4fdd72e). `log.get {before, limit, level}`, all optional. `before` is the opaque cursor (about 130 characters) from an earlier answer's `more`; without it the page starts at the newest line. `limit` 1 to 200, default 50; `level` `info` (default), `warning` or `error`, the lowest level returned. Answer `{"entries":[{t, boot, level, source, text}], "more": <cursor>|null}`, newest first: `t` Unix ms from the Pi clock (may be wrong offline; order by position), `boot` a short boot id, `source` `dlidar` or `system` (systemd's lines about the service), `text` cut at 1024 bytes. `more` is null at the start of the log. Pages stay stable while new lines arrive; to refresh, read without `before`. A page fits 16 KiB and one request reads a bounded part of the journal, so a page may hold fewer than `limit` lines, even none, while `more` is not null. Errors: `bad_request` naming `before`, `limit` or `level`; new code `unavailable` (the journal cannot be read) with a readable message. `hello` lists `log.get`; protocol stays 1. Only the service's lines; runs started by hand are not in it. No per-entry id: the app does not need one, because a refresh replaces what it holds.
+
+   **Observed (2026-11-04):** The first page over BLE arrived corrupted: Android delivers at most 512 bytes of a notification (the GATT maximum attribute length), and with MTU 517 the scanner sent 514, so 2 bytes were lost from every full notification and the line could not be parsed. Every message over 512 bytes is affected; earlier answers were all shorter. Asked of the scanner side: cap notifications at min(MTU-3, 512). The app now caps its write pieces at 512 too.
+
+   **Scanner answer (2026-11-04):** Fixed: every notification is at most min(MTU-3, 512) bytes, and the contract says pieces are at most 512 bytes in both directions. No secret reaches dLidar's log: `wifi.connect` logs only the client kind, SSID and security, and the outcome; nmcli errors are scrubbed of the psk; `bad_request` messages never echo argument values. The log does contain SSIDs, the Pi's paths and IP addresses.
+
+   **Observed (2026-11-04):** With the fix, paging works on the phone: the newest page and two older pages to the start of the log (`more: null`), about 0.5 to 0.65 s each; `level` `warning` in one request.
+
 36. **Echo test service:** what is the format of the `info` answer? Does the `flood` SIZE
     count the newline?
 
