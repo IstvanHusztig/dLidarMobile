@@ -114,7 +114,6 @@
     <string name="state_unknown">Unknown (%1$s)</string>
 
     <!-- Status: warnings, device, summary -->
-    <string name="section_warnings">Warnings</string>
     <string name="section_scanner">Scanner</string>
     <string name="label_scanner_address">Bluetooth address</string>
     <string name="label_ip_address">IP address</string>

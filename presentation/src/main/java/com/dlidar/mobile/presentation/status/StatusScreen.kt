@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Tab
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.dlidar.mobile.domain.model.WifiState
@@ -152,10 +154,10 @@ private fun ConnectionDot(state: StatusUiState, onAction: (StatusAction) -> Unit
     val description = connectionText(state.connection)
     Box(
         Modifier
-            .padding(start = 8.dp)
-            .size(32.dp)
+            .padding(start = 4.dp)
+            .minimumInteractiveComponentSize()
             .clip(CircleShape)
-            .clickable(enabled = state.canRetry) { onAction(StatusAction.Retry) }
+            .clickable(enabled = state.canRetry, role = Role.Button) { onAction(StatusAction.Retry) }
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {

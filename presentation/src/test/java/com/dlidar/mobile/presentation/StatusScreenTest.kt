@@ -203,6 +203,29 @@ class StatusScreenTest {
     }
 
     @Test
+    fun `the Wi-Fi read shows only while the scanner takes the Wi-Fi commands`() {
+        val snapshot = ScannerSnapshot(
+            connection = ConnectionState.Connected,
+            compatibility = Compatibility.Compatible,
+            canSetUpWifi = true,
+        )
+        val read = StatusUiState.WifiRead.Read(ScannerWifiStatus(WifiState.Connected, "Home", "10.0.0.5", null))
+        assertEquals("Home", StatusUiState.from(snapshot, wifi = read).scannerWifi?.ssid)
+        assertTrue(StatusUiState.from(snapshot, wifi = StatusUiState.WifiRead.Failed).wifiReadFailed)
+
+        val noWifi = snapshot.copy(canSetUpWifi = false)
+        assertEquals(null, StatusUiState.from(noWifi, wifi = read).scannerWifi)
+        assertFalse(StatusUiState.from(noWifi, wifi = StatusUiState.WifiRead.Failed).wifiReadFailed)
+    }
+
+    @Test
+    fun `a failed Wi-Fi read shows Unknown`() {
+        compose.setContent { StatusScreen(live.copy(status = null, showWifiSetup = true, wifiReadFailed = true), onAction = {}) }
+        compose.onNodeWithText("Wi-Fi").assertExists()
+        compose.onNodeWithText("Unknown").assertExists()
+    }
+
+    @Test
     fun `controls follow the snapshot`() {
         val snapshot = ScannerSnapshot(
             connection = ConnectionState.Connected,
