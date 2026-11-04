@@ -14,15 +14,12 @@ import com.dlidar.mobile.domain.model.WifiNetwork
 import com.dlidar.mobile.domain.model.WifiScan
 import com.dlidar.mobile.domain.model.WifiSecurity
 import com.dlidar.mobile.domain.model.WifiState
-import com.dlidar.mobile.presentation.status.StatusScreen
-import com.dlidar.mobile.presentation.status.StatusUiState
 import com.dlidar.mobile.presentation.wifi.JoinForm
 import com.dlidar.mobile.presentation.wifi.JoinOutcome
 import com.dlidar.mobile.presentation.wifi.WifiSetupAction
 import com.dlidar.mobile.presentation.wifi.WifiSetupScreen
 import com.dlidar.mobile.presentation.wifi.WifiSetupUiState
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -114,13 +111,4 @@ class WifiSetupScreenTest {
         compose.onNodeWithText("Wi-Fi is not available on the scanner.").assertExists()
         compose.onNodeWithText("Grant permission").assertExists()
     }
-
-    @Test
-    fun `the status screen offers Wi-Fi setup only when the scanner takes it`() {
-        var opened = false
-        compose.setContent { StatusScreen(StatusUiState(isLive = true, showWifiSetup = true), onWifiSetup = { opened = true }, onAction = {}) }
-        compose.onNodeWithText("Scanner Wi-Fi").performClick()
-        assertTrue(opened)
-    }
-
 }

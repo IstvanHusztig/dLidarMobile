@@ -56,7 +56,7 @@ object DebugTools {
     }
 
     @Composable
-    fun TrafficLogRoute(onBack: () -> Unit) {
+    fun TrafficLogTab() {
         val entries by trafficLog.entries.collectAsStateWithLifecycle()
         val context = LocalContext.current
         TrafficLogScreen(
@@ -69,7 +69,6 @@ object DebugTools {
                 context.startActivity(Intent.createChooser(send, null))
             },
             onClear = trafficLog::clear,
-            onBack = onBack,
         )
     }
 }

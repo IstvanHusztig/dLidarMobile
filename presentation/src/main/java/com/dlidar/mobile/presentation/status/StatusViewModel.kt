@@ -10,11 +10,14 @@ import com.dlidar.mobile.domain.usecase.ConnectScanner
 import com.dlidar.mobile.domain.usecase.DisconnectScanner
 import com.dlidar.mobile.domain.usecase.DismissWarning
 import com.dlidar.mobile.domain.usecase.ObserveScanner
+import com.dlidar.mobile.domain.usecase.ReadScannerWifi
 import com.dlidar.mobile.domain.usecase.RefreshStatus
 import com.dlidar.mobile.domain.usecase.StartRecording
 import com.dlidar.mobile.domain.usecase.StopRecording
 import com.dlidar.mobile.presentation.status.StatusUiState.CommandFailure
 import com.dlidar.mobile.presentation.status.StatusUiState.RecordingCommand
+import com.dlidar.mobile.presentation.status.StatusUiState.WifiRead
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -38,17 +41,20 @@ class StatusViewModel(
     private val dismissWarning: DismissWarning,
     private val startRecording: StartRecording,
     private val stopRecording: StopRecording,
+    private val readScannerWifi: ReadScannerWifi,
 ) : ViewModel() {
 
     private val refreshError = MutableStateFlow<DomainError?>(null)
     /** A start or stop is waiting for its answer; both buttons are off meanwhile. */
     private val sending = MutableStateFlow(false)
     private val commandFailure = MutableStateFlow<CommandFailure?>(null)
+    private val wifi = MutableStateFlow<WifiRead>(WifiRead.Reading)
+    private var wifiRead: Job? = null
     /** Counts connection changes, so a command's failure from an older connection is dropped. */
     @Volatile private var connectionEpoch = 0
 
-    val state: StateFlow<StatusUiState> = combine(observeScanner(), refreshError, sending, commandFailure) { snapshot, error, busy, failure ->
-        StatusUiState.from(snapshot, error, busy, failure)
+    val state: StateFlow<StatusUiState> = combine(observeScanner(), refreshError, sending, commandFailure, wifi) { snapshot, error, busy, failure, wifiRead ->
+        StatusUiState.from(snapshot, error, busy, failure, wifiRead)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, StatusUiState.from(observeScanner().value))
 
     init {
@@ -64,18 +70,35 @@ class StatusViewModel(
         observeScanner().map { it.status?.state }.distinctUntilChanged().drop(1)
             .onEach { commandFailure.value = null }
             .launchIn(viewModelScope)
+        // The Wi-Fi row is read once the scanner takes the Wi-Fi commands, and dropped when the link goes.
+        observeScanner().map { StatusUiState.from(it).showWifiSetup }.distinctUntilChanged()
+            .onEach { offered -> if (offered) readWifi() else { wifiRead?.cancel(); wifi.value = WifiRead.Reading } }
+            .launchIn(viewModelScope)
     }
 
     fun onAction(action: StatusAction) {
         when (action) {
-            StatusAction.Refresh -> viewModelScope.launch {
-                refreshError.value = (refreshStatus() as? Outcome.Failed)?.error
+            StatusAction.Shown -> if (state.value.showWifiSetup) readWifi()
+            StatusAction.Refresh -> {
+                viewModelScope.launch { refreshError.value = (refreshStatus() as? Outcome.Failed)?.error }
+                if (state.value.showWifiSetup) readWifi()
             }
             StatusAction.Retry -> observeScanner().value.target?.let(connectScanner::invoke)
             StatusAction.Disconnect -> disconnectScanner()
             is StatusAction.DismissWarning -> dismissWarning(action.warningId)
             StatusAction.StartRecording -> send(RecordingCommand.Start) { startRecording() }
             StatusAction.StopRecording -> send(RecordingCommand.Stop) { stopRecording() }
+        }
+    }
+
+    /** The newest read wins; the last value stays shown meanwhile. */
+    private fun readWifi() {
+        wifiRead?.cancel()
+        wifiRead = viewModelScope.launch {
+            wifi.value = when (val outcome = readScannerWifi()) {
+                is Outcome.Ok -> WifiRead.Read(outcome.value)
+                is Outcome.Failed -> WifiRead.Failed
+            }
         }
     }
 

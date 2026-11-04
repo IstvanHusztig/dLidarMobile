@@ -284,3 +284,10 @@ spec (docs/phone-protocol.md on the scanner side), *provisional* ones may still 
 
    **Observed (2026-11-02):** `info` answered `info mode=properties secure=1 mtu=517 notifying=1 notify_fd=-1 devices=1`; the fields are now described in the scanner answer. `flood 200 200` delivered 200/200 messages of 200 B, none missing or out of order, at about 37 KB/s; the app counted 200 B per message, matching the scanner answer that SIZE includes the newline.
 
+37. **Hostname:** can `info.get` report the scanner's host name, as an optional
+    `"hostname": "<name>"` field? The app shows it on the Info tab next to the IP address from
+    `wifi.status`; until a scanner sends it, the app shows Unknown.
+
+   **Answer:** Not in the spec; asked of the scanner side (2026-11-04).
+
+   **Scanner answer (2026-11-04):** Binding (dLidar's docs/phone-protocol.md, build 5250d33): field `hostname`, a string, the short host name (`gethostname()` up to the first `.`), added after `protocol`. Optional: older builds leave it out, and it is left out when the name cannot be read. Protocol stays 1.

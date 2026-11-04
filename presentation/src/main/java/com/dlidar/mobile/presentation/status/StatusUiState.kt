@@ -8,11 +8,14 @@ import com.dlidar.mobile.domain.model.RecordingState
 import com.dlidar.mobile.domain.model.RecordingSummary
 import com.dlidar.mobile.domain.model.ScannerSnapshot
 import com.dlidar.mobile.domain.model.ScannerStatus
+import com.dlidar.mobile.domain.model.ScannerWifiStatus
 import com.dlidar.mobile.domain.model.Warning
 import com.dlidar.mobile.domain.result.DomainError
 
 data class StatusUiState(
     val scannerName: String? = null,
+    /** The scanner's Bluetooth address. */
+    val scannerAddress: String? = null,
     val connection: ConnectionState = ConnectionState.Disconnected,
     val updateAppRequired: Boolean = false,
     val updateScannerRequired: Boolean = false,
@@ -36,11 +39,21 @@ data class StatusUiState(
     val commandFailure: CommandFailure? = null,
     /** The Wi-Fi setup entry is shown: live, and the scanner takes the Wi-Fi commands. */
     val showWifiSetup: Boolean = false,
+    /** The scanner's Wi-Fi for the Wi-Fi row; null while it is being read. */
+    val scannerWifi: ScannerWifiStatus? = null,
+    val wifiReadFailed: Boolean = false,
 ) {
     /** A start or stop the scanner refused, or that got no answer. */
     data class CommandFailure(val command: RecordingCommand, val error: DomainError)
 
     enum class RecordingCommand { Start, Stop }
+
+    /** The last wifi.status read for the Wi-Fi row. */
+    sealed interface WifiRead {
+        data object Reading : WifiRead
+        data class Read(val status: ScannerWifiStatus) : WifiRead
+        data object Failed : WifiRead
+    }
 
     companion object {
         fun from(
@@ -48,12 +61,15 @@ data class StatusUiState(
             refreshError: DomainError? = null,
             sending: Boolean = false,
             commandFailure: CommandFailure? = null,
+            wifi: WifiRead = WifiRead.Reading,
         ): StatusUiState {
             val live = snapshot.connection == ConnectionState.Connected
             val controls = live && snapshot.compatibility.allowsRequests && snapshot.canControlRecording
             val recordingState = snapshot.status?.state
+            val wifiSetup = live && snapshot.compatibility.allowsRequests && snapshot.canSetUpWifi
             return StatusUiState(
                 scannerName = snapshot.target?.name,
+                scannerAddress = snapshot.target?.id,
                 connection = snapshot.connection,
                 updateAppRequired = snapshot.compatibility is Compatibility.UpdateAppRequired,
                 updateScannerRequired = snapshot.compatibility is Compatibility.UpdateScannerRequired,
@@ -73,13 +89,17 @@ data class StatusUiState(
                 canStop = controls && !sending && recordingState != null && RecordingControl.canStop(recordingState),
                 saving = controls && recordingState == RecordingState.Finalizing,
                 commandFailure = commandFailure.takeIf { controls },
-                showWifiSetup = live && snapshot.compatibility.allowsRequests && snapshot.canSetUpWifi,
+                showWifiSetup = wifiSetup,
+                scannerWifi = (wifi as? WifiRead.Read)?.status.takeIf { wifiSetup },
+                wifiReadFailed = wifiSetup && wifi == WifiRead.Failed,
             )
         }
     }
 }
 
 sealed interface StatusAction {
+    /** The screen is shown again, for example back from the Wi-Fi setup; the Wi-Fi row is read again. */
+    data object Shown : StatusAction
     data object Refresh : StatusAction
     data object Retry : StatusAction
     data object Disconnect : StatusAction

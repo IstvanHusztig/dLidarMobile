@@ -40,7 +40,15 @@
     <string name="action_refresh">Refresh</string>
     <string name="action_disconnect">Disconnect</string>
     <string name="action_dismiss">Dismiss</string>
-    <string name="action_traffic_log">Log</string>
+    <string name="tab_device">Device</string>
+    <string name="tab_info">Info</string>
+    <string name="tab_log">Log</string>
+    <string name="log_not_available">Scanner logs come in a later version.</string>
+    <string name="wifi_row_label">Wi-Fi</string>
+    <string name="wifi_row_connected">Connected</string>
+    <string name="wifi_row_connecting">Connecting…</string>
+    <string name="wifi_row_disconnected">Not connected</string>
+    <string name="wifi_row_unavailable">No Wi-Fi</string>
     <string name="refresh_failed">Could not refresh the status.</string>
     <string name="action_start">Start recording</string>
     <string name="action_stop">Stop recording</string>
@@ -50,7 +58,6 @@
     <string name="recording_stop_failed">The recording could not be stopped. Try again, or use the button on the scanner.</string>
 
     <!-- Wi-Fi setup -->
-    <string name="action_wifi_setup">Scanner Wi-Fi</string>
     <string name="action_back">Back</string>
     <string name="action_cancel">Cancel</string>
     <string name="wifi_title">Scanner Wi-Fi</string>
@@ -108,12 +115,11 @@
 
     <!-- Status: warnings, device, summary -->
     <string name="section_warnings">Warnings</string>
-    <string name="section_device">Device</string>
-    <string name="label_version">Software version</string>
+    <string name="section_scanner">Scanner</string>
+    <string name="label_scanner_address">Bluetooth address</string>
+    <string name="label_ip_address">IP address</string>
+    <string name="label_hostname">Hostname</string>
     <string name="label_sensor">Sensor</string>
-    <string name="label_sensor_model">Sensor model</string>
-    <string name="label_recording_format">Recording format</string>
-    <string name="label_protocol">Protocol</string>
     <string name="sensor_unitree_l2">Unitree L2</string>
     <string name="sensor_livox_mid360s">Livox Mid-360S</string>
     <string name="section_summary">Last recording summary</string>

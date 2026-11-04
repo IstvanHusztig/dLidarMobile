@@ -2,14 +2,20 @@ package com.dlidar.mobile.presentation
 
 import com.dlidar.mobile.data.protocol.session.DefaultProtocolSessionFactory
 import com.dlidar.mobile.data.scanner.ScannerRepositoryImpl
+import com.dlidar.mobile.data.scanner.wifi.ScannerWifiImpl
 import com.dlidar.mobile.domain.model.ConnectionState
 import com.dlidar.mobile.domain.model.RecordingState
 import com.dlidar.mobile.domain.model.ScannerCandidate
+import com.dlidar.mobile.domain.model.WifiNetwork
+import com.dlidar.mobile.domain.model.WifiSecurity
+import com.dlidar.mobile.domain.model.WifiState
 import com.dlidar.mobile.domain.result.DomainError
 import com.dlidar.mobile.domain.usecase.ConnectScanner
 import com.dlidar.mobile.domain.usecase.DisconnectScanner
 import com.dlidar.mobile.domain.usecase.DismissWarning
+import com.dlidar.mobile.domain.usecase.JoinWifi
 import com.dlidar.mobile.domain.usecase.ObserveScanner
+import com.dlidar.mobile.domain.usecase.ReadScannerWifi
 import com.dlidar.mobile.domain.usecase.RefreshStatus
 import com.dlidar.mobile.domain.usecase.StartRecording
 import com.dlidar.mobile.domain.usecase.StopRecording
@@ -30,6 +36,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -58,10 +65,28 @@ class StatusViewModelTest {
             DismissWarning(repository),
             StartRecording(repository),
             StopRecording(repository),
+            ReadScannerWifi(ScannerWifiImpl(repository)),
         )
         repository.connect(ScannerCandidate("AA:BB", "dLidar", -50))
         runCurrent()
         return viewModel to repository
+    }
+
+    @Test
+    fun `the Wi-Fi row is read on connect and again when the screen is shown`() = runTest(dispatcher) {
+        val (viewModel, repository) = viewModel()
+        runCurrent()
+        assertEquals(WifiState.Disconnected, viewModel.state.value.scannerWifi?.state)
+
+        // Joined from the Wi-Fi setup; the status screen learns it when shown again.
+        JoinWifi(ScannerWifiImpl(repository))(WifiNetwork("Home", WifiSecurity.Open, -50), null)
+        viewModel.onAction(StatusAction.Shown)
+        runCurrent()
+        assertEquals("Home", viewModel.state.value.scannerWifi?.ssid)
+
+        fake.dropLink()
+        runCurrent()
+        assertNull(viewModel.state.value.scannerWifi)
     }
 
     @Test

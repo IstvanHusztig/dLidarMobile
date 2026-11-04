@@ -50,7 +50,7 @@ internal object ProtocolMappers {
 
     fun status(dto: StateEventDto) = ScannerStatus(recordingState(dto.state), dto.chunks, dto.points, dto.lastOk, dto.location)
 
-    fun info(dto: InfoDto) = DeviceInfo(dto.version, sensor(dto.sensor), dto.sensorModel, dto.recordingFormat, dto.protocol)
+    fun info(dto: InfoDto) = DeviceInfo(dto.version, sensor(dto.sensor), dto.sensorModel, dto.recordingFormat, dto.protocol, dto.hostname?.takeIf { it.isNotBlank() })
 
     fun recordingCommand(dto: RecordingCommandDto) = RecordingCommandResult(dto.accepted, recordingState(dto.state))
 

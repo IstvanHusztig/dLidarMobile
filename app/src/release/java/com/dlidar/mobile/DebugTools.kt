@@ -18,7 +18,6 @@ object DebugTools {
     @Composable
     fun LinkTest(container: AppContainer, candidate: ScannerCandidate, onBack: () -> Unit) = Unit
 
-    @Suppress("UNUSED_PARAMETER")
     @Composable
-    fun TrafficLogRoute(onBack: () -> Unit) = Unit
+    fun TrafficLogTab() = Unit
 }

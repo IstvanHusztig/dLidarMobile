@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
@@ -21,18 +20,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.ZoneId
 
-/** Debug screen; its texts are not translated. The newest entry is at the bottom. */
+/**
+ * Debug view; its texts are not translated. The newest entry is at the bottom. Shown inside the
+ * status screen's Log tab, so it has no back button and no system bar padding of its own.
+ */
 @Composable
 fun TrafficLogScreen(
     entries: List<TrafficEntry>,
     onShare: () -> Unit,
     onClear: () -> Unit,
-    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val zone = remember { ZoneId.systemDefault() }
-    Column(Modifier.fillMaxSize().systemBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("Back") }
             TextButton(onClick = onShare, enabled = entries.isNotEmpty()) { Text("Share") }
             TextButton(onClick = onClear, enabled = entries.isNotEmpty()) { Text("Clear") }
             Text("${entries.size} entries")

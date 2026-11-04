@@ -36,20 +36,15 @@ import com.dlidar.mobile.presentation.wifi.WifiSetupViewModel
 private sealed interface Screen {
     data object Connect : Screen
     data object Status : Screen
-    data object TrafficLog : Screen
     data object Wifi : Screen
     data class LinkTest(val candidate: ScannerCandidate) : Screen
 }
 
-/**
- * The link test is not restored after recreation; its connection is gone by then. The traffic
- * log is restored (after process death it is empty) and goes back to the status screen.
- */
+/** The link test is not restored after recreation; its connection is gone by then. */
 private val ScreenSaver = Saver<Screen, String>(
     save = {
         when (it) {
             Screen.Status -> "status"
-            Screen.TrafficLog -> "traffic"
             Screen.Wifi -> "wifi"
             else -> "connect"
         }
@@ -57,7 +52,6 @@ private val ScreenSaver = Saver<Screen, String>(
     restore = {
         when (it) {
             "status" -> Screen.Status
-            "traffic" -> Screen.TrafficLog
             "wifi" -> Screen.Wifi
             else -> Screen.Connect
         }
@@ -90,17 +84,12 @@ fun AppRoot(container: AppContainer) {
             StatusRoute(
                 container,
                 onDisconnected = { screen = Screen.Connect },
-                onTrafficLog = if (DebugTools.trafficLogAvailable) ({ screen = Screen.TrafficLog }) else null,
                 onWifiSetup = { screen = Screen.Wifi },
             )
         }
         Screen.Wifi -> {
             BackHandler { screen = Screen.Status }
             WifiRoute(container, onBack = { screen = Screen.Status })
-        }
-        Screen.TrafficLog -> {
-            BackHandler { screen = Screen.Status }
-            DebugTools.TrafficLogRoute(onBack = { screen = Screen.Status })
         }
         is Screen.LinkTest -> {
             BackHandler { screen = Screen.Connect }
@@ -149,7 +138,7 @@ private fun ConnectRoute(container: AppContainer, onConnected: () -> Unit, onLin
 }
 
 @Composable
-private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onTrafficLog: (() -> Unit)?, onWifiSetup: () -> Unit) {
+private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onWifiSetup: () -> Unit) {
     val viewModel = viewModel {
         StatusViewModel(
             container.observeScanner,
@@ -159,10 +148,14 @@ private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onT
             container.dismissWarning,
             container.startRecording,
             container.stopRecording,
+            container.readScannerWifi,
         )
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
-    StatusScreen(state, onTrafficLog = onTrafficLog, onWifiSetup = onWifiSetup) { action ->
+    // Also after the Wi-Fi setup, which may have changed the scanner's network.
+    LaunchedEffect(Unit) { viewModel.onAction(StatusAction.Shown) }
+
+    StatusScreen(state, logTab = if (DebugTools.trafficLogAvailable) ({ DebugTools.TrafficLogTab() }) else null, onWifiSetup = onWifiSetup) { action ->
         viewModel.onAction(action)
         if (action is StatusAction.Disconnect) onDisconnected()
     }

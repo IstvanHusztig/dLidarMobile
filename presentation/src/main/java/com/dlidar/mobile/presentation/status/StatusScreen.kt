@@ -1,5 +1,22 @@
 package com.dlidar.mobile.presentation.status
 
+import androidx.annotation.StringRes
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.dlidar.mobile.domain.model.WifiState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -46,79 +63,134 @@ import java.time.Instant
 @Composable
 fun StatusScreen(
     state: StatusUiState,
-    /** Debug builds only: opens the protocol traffic log. */
-    onTrafficLog: (() -> Unit)? = null,
+    /** The Log tab's content; null shows a note that logs are not available yet. */
+    logTab: (@Composable () -> Unit)? = null,
     onWifiSetup: () -> Unit = {},
     onAction: (StatusAction) -> Unit,
 ) {
+    var tab by rememberSaveable { mutableStateOf(StatusTab.Device) }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(state.scannerName ?: stringResource(R.string.status_title_fallback)) },
-                actions = {
-                    if (onTrafficLog != null) {
-                        TextButton(onClick = onTrafficLog) { Text(stringResource(R.string.action_traffic_log)) }
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(state.scannerName ?: stringResource(R.string.status_title_fallback))
+                        ConnectionDot(state, onAction)
                     }
+                },
+                actions = {
                     if (state.isLive && !state.updateAppRequired && !state.updateScannerRequired && !state.notAnswering) {
-                        TextButton(onClick = { onAction(StatusAction.Refresh) }) { Text(stringResource(R.string.action_refresh)) }
+                        val refresh = stringResource(R.string.action_refresh)
+                        TextButton(
+                            onClick = { onAction(StatusAction.Refresh) },
+                            modifier = Modifier.semantics { contentDescription = refresh },
+                        ) { Text("⟳", style = MaterialTheme.typography.titleLarge) }
                     }
                     TextButton(onClick = { onAction(StatusAction.Disconnect) }) { Text(stringResource(R.string.action_disconnect)) }
                 },
             )
         },
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item { ConnectionBanner(state, onAction) }
-            if (state.updateAppRequired) item { Notice(stringResource(R.string.update_app), MaterialTheme.colorScheme.errorContainer) }
-            if (state.updateScannerRequired) item { Notice(stringResource(R.string.update_scanner), MaterialTheme.colorScheme.errorContainer) }
-            if (state.notAnswering) item { Notice(stringResource(R.string.not_answering), MaterialTheme.colorScheme.errorContainer) }
-            if (state.refreshError != null) item { Notice(stringResource(R.string.refresh_failed), MaterialTheme.colorScheme.errorContainer) }
-            if (state.showRecordingControls) item { RecordingControls(state, onAction) }
-            item { RecordingCard(state.status, state.freeBytes, state.isLive) }
-            if (state.showWifiSetup) {
-                item {
-                    OutlinedButton(onClick = onWifiSetup, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.action_wifi_setup))
-                    }
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // Shown on every tab: why the values are not live, and what blocks requests.
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!state.isLive) ConnectionBanner(state, onAction)
+                if (state.updateAppRequired) Notice(stringResource(R.string.update_app), MaterialTheme.colorScheme.errorContainer)
+                if (state.updateScannerRequired) Notice(stringResource(R.string.update_scanner), MaterialTheme.colorScheme.errorContainer)
+                if (state.notAnswering) Notice(stringResource(R.string.not_answering), MaterialTheme.colorScheme.errorContainer)
+                if (state.refreshError != null) Notice(stringResource(R.string.refresh_failed), MaterialTheme.colorScheme.errorContainer)
+            }
+            PrimaryTabRow(selectedTabIndex = tab.ordinal, modifier = Modifier.padding(top = 8.dp)) {
+                StatusTab.entries.forEach { entry ->
+                    Tab(selected = tab == entry, onClick = { tab = entry }, text = { Text(stringResource(entry.title)) })
                 }
             }
-            if (state.warnings.isNotEmpty()) {
-                item { SectionTitle(stringResource(R.string.section_warnings)) }
-                items(state.warnings, key = { it.id }) { warning -> WarningCard(warning, onAction) }
+            when (tab) {
+                StatusTab.Device -> TabList {
+                    items(state.warnings, key = { it.id }) { warning -> WarningCard(warning, onAction) }
+                    if (state.showWifiSetup) item { WifiRow(state, onWifiSetup) }
+                    if (state.showRecordingControls) item { RecordingControls(state, onAction) }
+                    item { RecordingCard(state.status, state.freeBytes, state.isLive) }
+                    state.summary?.let { summary -> item { SummaryCard(summary) } }
+                }
+                StatusTab.Info -> TabList {
+                    item { ScannerCard(state) }
+                }
+                StatusTab.Log -> Box(Modifier.fillMaxSize()) {
+                    if (logTab != null) logTab()
+                    else Text(stringResource(R.string.log_not_available), modifier = Modifier.padding(16.dp))
+                }
             }
-            state.summary?.let { summary -> item { SummaryCard(summary) } }
-            state.info?.let { info -> item { DeviceCard(info) } }
         }
     }
 }
 
+private enum class StatusTab(@StringRes val title: Int) {
+    Device(R.string.tab_device),
+    Info(R.string.tab_info),
+    Log(R.string.tab_log),
+}
+
+@Composable
+private fun TabList(content: LazyListScope.() -> Unit) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        content = content,
+    )
+}
+
+/** Green while connected, amber while connecting, gray otherwise. Tapping it retries when that is offered. */
+@Composable
+private fun ConnectionDot(state: StatusUiState, onAction: (StatusAction) -> Unit) {
+    val color = when (state.connection) {
+        ConnectionState.Connected -> CONNECTED_GREEN
+        is ConnectionState.Connecting, is ConnectionState.WaitingToRetry -> CONNECTING_AMBER
+        else -> MaterialTheme.colorScheme.outline
+    }
+    val description = connectionText(state.connection)
+    Box(
+        Modifier
+            .padding(start = 8.dp)
+            .size(32.dp)
+            .clip(CircleShape)
+            .clickable(enabled = state.canRetry) { onAction(StatusAction.Retry) }
+            .semantics { contentDescription = description },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(16.dp).clip(CircleShape).background(color))
+    }
+}
+
+private val CONNECTED_GREEN = Color(0xFF43A047)
+private val CONNECTING_AMBER = Color(0xFFFFB300)
+
+@Composable
+private fun connectionText(connection: ConnectionState): String = when (connection) {
+    ConnectionState.Disconnected -> stringResource(R.string.conn_disconnected)
+    is ConnectionState.Connecting ->
+        if (connection.attempt <= 1) stringResource(R.string.conn_connecting)
+        else stringResource(R.string.conn_connecting_attempt, connection.attempt)
+    ConnectionState.Connected -> stringResource(R.string.conn_connected)
+    is ConnectionState.WaitingToRetry -> stringResource(R.string.conn_waiting, ((connection.retryInMillis + 999) / 1000).toInt())
+    ConnectionState.WaitingForBluetooth -> stringResource(R.string.conn_waiting_bluetooth)
+    is ConnectionState.Refused -> stringResource(R.string.conn_refused)
+    is ConnectionState.Failed -> when (connection.reason) {
+        ConnectionState.Failed.Reason.PermissionMissing -> stringResource(R.string.conn_failed_permission)
+        ConnectionState.Failed.Reason.NotADLidar -> stringResource(R.string.conn_failed_not_dlidar)
+        ConnectionState.Failed.Reason.NotPaired -> stringResource(R.string.conn_failed_not_paired)
+        ConnectionState.Failed.Reason.Other -> stringResource(R.string.conn_failed_other)
+    }
+}
+
+/** Shown while not connected: what is going on, and Retry when it helps. */
 @Composable
 private fun ConnectionBanner(state: StatusUiState, onAction: (StatusAction) -> Unit) {
-    val text = when (val connection = state.connection) {
-        ConnectionState.Disconnected -> stringResource(R.string.conn_disconnected)
-        is ConnectionState.Connecting ->
-            if (connection.attempt <= 1) stringResource(R.string.conn_connecting)
-            else stringResource(R.string.conn_connecting_attempt, connection.attempt)
-        ConnectionState.Connected -> stringResource(R.string.conn_connected)
-        is ConnectionState.WaitingToRetry -> stringResource(R.string.conn_waiting, ((connection.retryInMillis + 999) / 1000).toInt())
-        ConnectionState.WaitingForBluetooth -> stringResource(R.string.conn_waiting_bluetooth)
-        is ConnectionState.Refused -> stringResource(R.string.conn_refused)
-        is ConnectionState.Failed -> when (connection.reason) {
-            ConnectionState.Failed.Reason.PermissionMissing -> stringResource(R.string.conn_failed_permission)
-            ConnectionState.Failed.Reason.NotADLidar -> stringResource(R.string.conn_failed_not_dlidar)
-            ConnectionState.Failed.Reason.NotPaired -> stringResource(R.string.conn_failed_not_paired)
-            ConnectionState.Failed.Reason.Other -> stringResource(R.string.conn_failed_other)
-        }
-    }
-    val color = if (state.isLive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    Card(colors = CardDefaults.cardColors(containerColor = color), modifier = Modifier.fillMaxWidth()) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            Text(text, style = MaterialTheme.typography.titleMedium)
-            if (!state.isLive && state.status != null) {
+            Text(connectionText(state.connection), style = MaterialTheme.typography.titleMedium)
+            if (state.status != null) {
                 Text(stringResource(R.string.values_stale), style = MaterialTheme.typography.bodySmall)
             }
             if (state.canRetry) {
@@ -126,6 +198,34 @@ private fun ConnectionBanner(state: StatusUiState, onAction: (StatusAction) -> U
                     Text(stringResource(R.string.action_retry))
                 }
             }
+        }
+    }
+}
+
+/** The scanner's network; tapping it opens the Wi-Fi setup. */
+@Composable
+private fun WifiRow(state: StatusUiState, onWifiSetup: () -> Unit) {
+    val wifi = state.scannerWifi
+    val value = when {
+        state.wifiReadFailed -> stringResource(R.string.value_unknown)
+        wifi == null -> stringResource(R.string.value_waiting)
+        else -> when (val wifiState = wifi.state) {
+            WifiState.Connected -> wifi.ssid ?: stringResource(R.string.wifi_row_connected)
+            WifiState.Connecting -> stringResource(R.string.wifi_row_connecting)
+            WifiState.Disconnected -> stringResource(R.string.wifi_row_disconnected)
+            WifiState.Unavailable -> stringResource(R.string.wifi_row_unavailable)
+            is WifiState.Unknown -> wifiState.raw
+        }
+    }
+    Card(
+        onClick = onWifiSetup,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.wifi_row_label), style = MaterialTheme.typography.titleMedium)
+            Text(value, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(horizontal = 16.dp))
+            Text("▾", style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -214,13 +314,19 @@ private fun SummaryCard(summary: RecordingSummary) {
 }
 
 @Composable
-private fun DeviceCard(info: DeviceInfo) {
-    InfoCard(stringResource(R.string.section_device)) {
-        Field(stringResource(R.string.label_version), info.version)
-        Field(stringResource(R.string.label_sensor), sensorLabel(info.sensor))
-        Field(stringResource(R.string.label_sensor_model), info.sensorModel)
-        Field(stringResource(R.string.label_recording_format), info.recordingFormat.toString())
-        Field(stringResource(R.string.label_protocol), info.protocol.toString())
+private fun ScannerCard(state: StatusUiState) {
+    val unknown = stringResource(R.string.value_unknown)
+    val wifi = state.scannerWifi
+    val ip = when {
+        wifi == null -> unknown
+        wifi.state != WifiState.Connected -> stringResource(R.string.wifi_row_disconnected)
+        else -> wifi.ip ?: unknown
+    }
+    InfoCard(stringResource(R.string.section_scanner)) {
+        Field(stringResource(R.string.label_scanner_address), state.scannerAddress ?: unknown)
+        Field(stringResource(R.string.label_sensor), state.info?.let { sensorLabel(it.sensor) } ?: unknown)
+        Field(stringResource(R.string.label_ip_address), ip)
+        Field(stringResource(R.string.label_hostname), state.info?.hostname ?: unknown)
     }
 }
 

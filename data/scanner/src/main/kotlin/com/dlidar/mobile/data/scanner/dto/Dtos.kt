@@ -75,6 +75,8 @@ internal data class InfoDto(
     @SerialName("sensor_model") val sensorModel: String,
     @SerialName("recording_format") val recordingFormat: Int,
     val protocol: Int,
+    /** Proposed to the scanner side (open question 37); older scanners leave it out. */
+    val hostname: String? = null,
 )
 
 @Serializable

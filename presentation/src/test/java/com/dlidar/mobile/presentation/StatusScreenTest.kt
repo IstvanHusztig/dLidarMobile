@@ -3,10 +3,12 @@ package com.dlidar.mobile.presentation
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.Text
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.dlidar.mobile.domain.model.Compatibility
@@ -16,6 +18,8 @@ import com.dlidar.mobile.domain.model.RecordingState
 import com.dlidar.mobile.domain.model.RecordingSummary
 import com.dlidar.mobile.domain.model.ScannerSnapshot
 import com.dlidar.mobile.domain.model.ScannerStatus
+import com.dlidar.mobile.domain.model.ScannerWifiStatus
+import com.dlidar.mobile.domain.model.WifiState
 import com.dlidar.mobile.domain.model.SensorType
 import com.dlidar.mobile.domain.model.Warning
 import com.dlidar.mobile.domain.model.WarningKind
@@ -46,21 +50,30 @@ class StatusScreenTest {
         isLive = true,
         status = ScannerStatus(RecordingState.Recording, 12, 2_400_000, true, "/media/usb/scans"),
         freeBytes = null,
-        info = DeviceInfo("1.2.3", SensorType.LivoxMid360s, "MID-360S", 3, 1),
+        info = DeviceInfo("1.2.3", SensorType.LivoxMid360s, "MID-360S", 3, 1, hostname = "dlidar-pi"),
         warnings = listOf(Warning(7, WarningKind.Unknown("lens_fogged"), "The lens is fogged up.", Instant.EPOCH)),
         summary = RecordingSummary("fused", "keep", 100, 99, 1, Instant.EPOCH),
     )
 
     @Test
-    fun `shows state, counts, unknown free space, warning text, device and summary`() {
-        compose.setContent { StatusScreen(live, onAction = {}) }
+    fun `the Device tab shows state, counts, unknown free space, warning text and summary, Info shows the scanner`() {
+        val wifi = ScannerWifiStatus(WifiState.Connected, "Home", "10.0.0.5", null)
+        compose.setContent { StatusScreen(live.copy(scannerAddress = "AA:BB", showWifiSetup = true, scannerWifi = wifi), onAction = {}) }
 
-        compose.onNodeWithText("Connected").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Connected").assertIsDisplayed()
         compose.onNodeWithText("/media/usb/scans").assertExists()
         compose.onNodeWithText("Unknown").assertExists()
         compose.onNodeWithText("The lens is fogged up.").assertExists()
-        compose.onNodeWithText("1.2.3").assertExists()
         compose.onNodeWithText("keep").assertExists()
+        compose.onNodeWithText("AA:BB").assertDoesNotExist()
+
+        compose.onNodeWithText("Info").performClick()
+        compose.onNodeWithText("AA:BB").assertExists()
+        compose.onNodeWithText("Livox Mid-360S").assertExists()
+        compose.onNodeWithText("10.0.0.5").assertExists()
+        compose.onNodeWithText("dlidar-pi").assertExists()
+        compose.onNodeWithText("1.2.3").assertDoesNotExist()
+        compose.onNodeWithText("/media/usb/scans").assertDoesNotExist()
     }
 
     @Test
@@ -131,15 +144,38 @@ class StatusScreenTest {
     }
 
     @Test
-    fun `the traffic log button shows only when the app offers the log`() {
-        var opened = 0
+    fun `the Log tab shows the log the app offers, or a note`() {
         var offered by mutableStateOf(false)
-        compose.setContent { StatusScreen(live, onTrafficLog = if (offered) ({ opened++ }) else null, onAction = {}) }
-        compose.onNodeWithText("Log").assertDoesNotExist()
+        compose.setContent { StatusScreen(live, logTab = if (offered) ({ Text("traffic entries") }) else null, onAction = {}) }
+        compose.onNodeWithText("Log").performClick()
+        compose.onNodeWithText("Scanner logs come in a later version.").assertExists()
 
         offered = true
-        compose.onNodeWithText("Log").performClick()
+        compose.onNodeWithText("traffic entries").assertExists()
+    }
+
+    @Test
+    fun `the Wi-Fi row shows the scanner's network and opens the setup`() {
+        var opened = 0
+        val wifi = ScannerWifiStatus(WifiState.Connected, "Home", "10.0.0.5", null)
+        compose.setContent { StatusScreen(live.copy(showWifiSetup = true, scannerWifi = wifi), onWifiSetup = { opened++ }, onAction = {}) }
+        compose.onNodeWithText("Home").performClick()
         assertEquals(1, opened)
+    }
+
+    @Test
+    fun `no Wi-Fi row when the scanner does not take the Wi-Fi commands`() {
+        compose.setContent { StatusScreen(live, onAction = {}) }
+        compose.onNodeWithText("Wi-Fi").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the connection dot retries when retry is offered`() {
+        val actions = mutableListOf<StatusAction>()
+        val dropped = live.copy(connection = ConnectionState.Disconnected, isLive = false, canRetry = true)
+        compose.setContent { StatusScreen(dropped, onAction = { actions += it }) }
+        compose.onNodeWithContentDescription("Disconnected").performClick()
+        assertEquals(listOf<StatusAction>(StatusAction.Retry), actions)
     }
 
     @Test

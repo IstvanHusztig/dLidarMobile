@@ -7,4 +7,6 @@ data class DeviceInfo(
     val sensorModel: String,
     val recordingFormat: Int,
     val protocol: Int,
+    /** The scanner's host name; null until the scanner reports it (open question 37). */
+    val hostname: String? = null,
 )
