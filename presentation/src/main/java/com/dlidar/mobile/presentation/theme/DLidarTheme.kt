@@ -17,7 +17,7 @@ import androidx.compose.ui.graphics.Color
  * used outdoors and in the dark. The dark scheme is for dark places: a true black background
  * (an OLED screen stays dark around the content), white text and bright accents, with
  * outlines strong enough to see controls at low brightness. The light scheme keeps the same
- * contrast in daylight. Both follow the phone's dark mode.
+ * contrast in daylight. [dark] is the user's choice, or the phone's dark mode until there is one.
  */
 @Composable
 fun DLidarTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
@@ -48,7 +48,7 @@ private val DarkStatusColors = StatusColors(
 )
 
 private val LightStatusColors = StatusColors(
-    connected = Color(0xFF0B6B2B),
+    connected = Color(0xFF095F26),
     connecting = Color(0xFF7A4F00),
     warning = Color(0xFF7A4F00),
 )

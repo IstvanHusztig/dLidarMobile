@@ -168,7 +168,6 @@ private fun ConnectionDot(state: StatusUiState, onAction: (StatusAction) -> Unit
     }
 }
 
-
 @Composable
 private fun connectionText(connection: ConnectionState): String = when (connection) {
     ConnectionState.Disconnected -> stringResource(R.string.conn_disconnected)
