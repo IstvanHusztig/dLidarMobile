@@ -63,6 +63,8 @@ class AppContainer(context: Context) {
 
     val readScannerLog = ReadScannerLog(ScannerLogImpl(repository, logger))
 
+    val themeSetting = ThemeSetting(context)
+
     init {
         DebugTools.start(this)
     }

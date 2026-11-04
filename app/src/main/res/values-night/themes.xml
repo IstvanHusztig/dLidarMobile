@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.DLidar" parent="android:Theme.Material.NoActionBar" />
+    <!-- Black like the app's dark scheme, so the window does not flash grey at start. -->
+    <style name="Theme.DLidar" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
 </resources>

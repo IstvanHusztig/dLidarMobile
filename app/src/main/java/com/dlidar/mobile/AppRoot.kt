@@ -62,7 +62,7 @@ private val ScreenSaver = Saver<Screen, String>(
 
 /** Navigation and the Android-only work the screens cannot do: permissions and system settings. */
 @Composable
-fun AppRoot(container: AppContainer) {
+fun AppRoot(container: AppContainer, darkTheme: Boolean, onToggleTheme: () -> Unit) {
     val snapshot by container.observeScanner().collectAsStateWithLifecycle()
     // The connection outlives the Activity, so after recreation the app returns to the status
     // screen instead of starting a new search (which could tear the live link down).
@@ -85,6 +85,8 @@ fun AppRoot(container: AppContainer) {
             }
             StatusRoute(
                 container,
+                darkTheme = darkTheme,
+                onToggleTheme = onToggleTheme,
                 onDisconnected = { screen = Screen.Connect },
                 onWifiSetup = { screen = Screen.Wifi },
             )
@@ -140,7 +142,13 @@ private fun ConnectRoute(container: AppContainer, onConnected: () -> Unit, onLin
 }
 
 @Composable
-private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onWifiSetup: () -> Unit) {
+private fun StatusRoute(
+    container: AppContainer,
+    darkTheme: Boolean,
+    onToggleTheme: () -> Unit,
+    onDisconnected: () -> Unit,
+    onWifiSetup: () -> Unit,
+) {
     val viewModel = viewModel {
         StatusViewModel(
             container.observeScanner,
@@ -157,7 +165,13 @@ private fun StatusRoute(container: AppContainer, onDisconnected: () -> Unit, onW
     // Also after the Wi-Fi setup, which may have changed the scanner's network.
     LaunchedEffect(Unit) { viewModel.onAction(StatusAction.Shown) }
 
-    StatusScreen(state, diagnosticsTab = { LogRoute(container) }, onWifiSetup = onWifiSetup) { action ->
+    StatusScreen(
+        state,
+        diagnosticsTab = { LogRoute(container) },
+        onWifiSetup = onWifiSetup,
+        darkTheme = darkTheme,
+        onToggleTheme = onToggleTheme,
+    ) { action ->
         viewModel.onAction(action)
         if (action is StatusAction.Disconnect) onDisconnected()
     }

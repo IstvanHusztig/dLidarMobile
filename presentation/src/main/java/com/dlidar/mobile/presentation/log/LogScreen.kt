@@ -46,6 +46,7 @@ import com.dlidar.mobile.domain.result.DomainError
 import com.dlidar.mobile.presentation.R
 import com.dlidar.mobile.presentation.log.LogUiState.Access
 import com.dlidar.mobile.presentation.log.LogUiState.Loading
+import com.dlidar.mobile.presentation.theme.DLidarColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import java.time.ZoneId
@@ -230,7 +231,7 @@ private fun levelLabel(level: LogLevel): String = when (level) {
 
 @Composable
 private fun levelColor(level: LogLevel): Color = when (level) {
-    LogLevel.Warning -> WARNING_AMBER
+    LogLevel.Warning -> DLidarColors.status.warning
     LogLevel.Error -> MaterialTheme.colorScheme.error
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
@@ -243,7 +244,6 @@ private fun sourceLabel(source: LogSource): String? = when (source) {
     is LogSource.Unknown -> source.raw
 }
 
-private val WARNING_AMBER = Color(0xFFFFB300)
 private val LIST_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
 
 /** How many rows before the end the next older page is asked for. */

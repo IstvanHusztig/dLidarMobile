@@ -39,6 +39,8 @@
     <string name="action_retry">Retry</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_disconnect">Disconnect</string>
+    <string name="action_theme_light">Switch to the light theme</string>
+    <string name="action_theme_dark">Switch to the dark theme</string>
     <string name="action_dismiss">Dismiss</string>
     <string name="tab_device">Device</string>
     <string name="tab_info">Info</string>

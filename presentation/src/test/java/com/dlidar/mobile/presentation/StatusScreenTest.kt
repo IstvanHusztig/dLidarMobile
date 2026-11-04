@@ -88,6 +88,18 @@ class StatusScreenTest {
     }
 
     @Test
+    fun `the theme button names the theme it switches to`() {
+        var toggled = 0
+        var dark by mutableStateOf(true)
+        compose.setContent { StatusScreen(live, darkTheme = dark, onToggleTheme = { toggled++ }, onAction = {}) }
+
+        compose.onNodeWithContentDescription("Switch to the light theme").performClick()
+        assertEquals(1, toggled)
+        dark = false
+        compose.onNodeWithContentDescription("Switch to the dark theme").assertExists()
+    }
+
+    @Test
     fun `an unknown recording state is shown generically`() {
         compose.setContent { StatusScreen(live.copy(status = live.status!!.copy(state = RecordingState.Unknown("calibrating"))), onAction = {}) }
         compose.onNodeWithText("Unknown (calibrating)").assertExists()

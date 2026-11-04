@@ -59,6 +59,7 @@ import com.dlidar.mobile.domain.model.WarningKind
 import com.dlidar.mobile.domain.result.DomainError
 import com.dlidar.mobile.presentation.R
 import com.dlidar.mobile.presentation.format.Formatters
+import com.dlidar.mobile.presentation.theme.DLidarColors
 import com.dlidar.mobile.presentation.theme.DLidarTheme
 import java.time.Instant
 
@@ -69,6 +70,9 @@ fun StatusScreen(
     /** The Diagnostics tab's content; null shows a note that logs are not available yet. */
     diagnosticsTab: (@Composable () -> Unit)? = null,
     onWifiSetup: () -> Unit = {},
+    darkTheme: Boolean = true,
+    /** Switches between the light and the dark theme; null hides the button. */
+    onToggleTheme: (() -> Unit)? = null,
     onAction: (StatusAction) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(StatusTab.Device) }
@@ -82,6 +86,7 @@ fun StatusScreen(
                     }
                 },
                 actions = {
+                    if (onToggleTheme != null) ThemeButton(darkTheme, onToggleTheme)
                     TextButton(onClick = { onAction(StatusAction.Disconnect) }) { Text(stringResource(R.string.action_disconnect)) }
                 },
             )
@@ -145,8 +150,8 @@ private fun TabList(content: LazyListScope.() -> Unit) {
 @Composable
 private fun ConnectionDot(state: StatusUiState, onAction: (StatusAction) -> Unit) {
     val color = when (state.connection) {
-        ConnectionState.Connected -> CONNECTED_GREEN
-        is ConnectionState.Connecting, is ConnectionState.WaitingToRetry -> CONNECTING_AMBER
+        ConnectionState.Connected -> DLidarColors.status.connected
+        is ConnectionState.Connecting, is ConnectionState.WaitingToRetry -> DLidarColors.status.connecting
         else -> MaterialTheme.colorScheme.outline
     }
     val description = connectionText(state.connection)
@@ -163,8 +168,6 @@ private fun ConnectionDot(state: StatusUiState, onAction: (StatusAction) -> Unit
     }
 }
 
-private val CONNECTED_GREEN = Color(0xFF43A047)
-private val CONNECTING_AMBER = Color(0xFFFFB300)
 
 @Composable
 private fun connectionText(connection: ConnectionState): String = when (connection) {
@@ -346,6 +349,18 @@ private fun InfoCard(title: String, action: (@Composable () -> Unit)? = null, co
             }
             content()
         }
+    }
+}
+
+/**
+ * Shows the theme it switches to: a sun in the dark theme, a moon in the light one. Both are
+ * symbols without an emoji form, so they look alike on every phone.
+ */
+@Composable
+private fun ThemeButton(darkTheme: Boolean, onClick: () -> Unit) {
+    val description = stringResource(if (darkTheme) R.string.action_theme_light else R.string.action_theme_dark)
+    TextButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = description }) {
+        Text(if (darkTheme) "\u263C" else "\u263E", style = MaterialTheme.typography.titleLarge)
     }
 }
 
